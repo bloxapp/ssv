@@ -1,7 +1,6 @@
 package p2pv1
 
 import (
-	"bytes"
 	"context"
 	"sync"
 	"sync/atomic"
@@ -9,7 +8,6 @@ import (
 
 	"github.com/bloxapp/ssv/logging"
 	"github.com/bloxapp/ssv/logging/fields"
-	"github.com/cornelk/hashmap"
 
 	connmgrcore "github.com/libp2p/go-libp2p/core/connmgr"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -70,10 +68,10 @@ type p2pNetwork struct {
 
 	state int32
 
-	activeValidators *hashmap.Map[string, validatorStatus]
+	subscriber *subscriber
+	subnets    []byte
 
 	backoffConnector *libp2pdiscbackoff.BackoffConnector
-	subnets          []byte
 	libConnManager   connmgrcore.ConnManager
 	syncer           syncing.Syncer
 	nodeStorage      operatorstorage.Storage
@@ -87,17 +85,16 @@ func New(logger *zap.Logger, cfg *Config) network.P2PNetwork {
 	logger = logger.Named(logging.NameP2PNetwork)
 
 	return &p2pNetwork{
-		parentCtx:        cfg.Ctx,
-		ctx:              ctx,
-		cancel:           cancel,
-		interfaceLogger:  logger,
-		fork:             forksfactory.NewFork(cfg.ForkVersion),
-		cfg:              cfg,
-		msgRouter:        cfg.Router,
-		state:            stateClosed,
-		activeValidators: hashmap.New[string, validatorStatus](),
-		nodeStorage:      cfg.NodeStorage,
-		operatorPKCache:  sync.Map{},
+		parentCtx:       cfg.Ctx,
+		ctx:             ctx,
+		cancel:          cancel,
+		interfaceLogger: logger,
+		fork:            forksfactory.NewFork(cfg.ForkVersion),
+		cfg:             cfg,
+		msgRouter:       cfg.Router,
+		state:           stateClosed,
+		nodeStorage:     cfg.NodeStorage,
+		operatorPKCache: sync.Map{},
 	}
 }
 
@@ -213,54 +210,47 @@ func (n *p2pNetwork) isReady() bool {
 // UpdateSubnets will update the registered subnets according to active validators
 // NOTE: it won't subscribe to the subnets (use subscribeToSubnets for that)
 func (n *p2pNetwork) UpdateSubnets(logger *zap.Logger) {
-	// TODO: this is a temporary fix to update subnets when validators are added/removed,
-	// there is a pending PR to replace this: https://github.com/bloxapp/ssv/pull/990
 	logger = logger.Named(logging.NameP2PNetwork)
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 	for range ticker.C {
 		start := time.Now()
 
-		last := make([]byte, len(n.subnets))
-		if len(n.subnets) > 0 {
-			copy(last, n.subnets)
+		// Subscribe/Unsubscribe to subnets according to changes in the active validators.
+		subnets, addedSubnets, removedSubnets, err := n.subscriber.Update(logger)
+		if err != nil {
+			logger.Warn("could not update subnets", zap.Error(err))
 		}
-		newSubnets := make([]byte, n.fork.Subnets())
-		n.activeValidators.Range(func(pkHex string, status validatorStatus) bool {
-			if status == validatorStatusInactive {
-				return true
-			}
-			subnet := n.fork.ValidatorSubnet(pkHex)
-			newSubnets[subnet] = byte(1)
-			return true
-		})
-		subnetsToAdd := make([]int, 0)
-		if !bytes.Equal(newSubnets, last) { // have changes
-			n.subnets = newSubnets
-			for i, b := range newSubnets {
-				if b == byte(1) {
-					subnetsToAdd = append(subnetsToAdd, i)
-				}
-			}
-		}
-
-		if len(subnetsToAdd) == 0 {
+		if len(addedSubnets) == 0 && len(removedSubnets) == 0 {
+			// Nothing changed.
 			continue
 		}
 
+		// Update our own node record.
+		n.subnets = subnets
 		self := n.idx.Self()
 		self.Metadata.Subnets = records.Subnets(n.subnets).String()
 		n.idx.UpdateSelfRecord(self)
 
-		err := n.disc.RegisterSubnets(logger.Named(logging.NameDiscoveryService), subnetsToAdd...)
-		if err != nil {
-			logger.Warn("could not register subnets", zap.Error(err))
-			continue
+		// Register/Deregister to subnets via discovery.
+		if len(addedSubnets) > 0 {
+			err = n.disc.RegisterSubnets(logger.Named(logging.NameDiscoveryService), addedSubnets...)
+			if err != nil {
+				logger.Warn("could not register subnets", zap.Error(err))
+			}
 		}
+		if len(removedSubnets) > 0 {
+			err = n.disc.DeregisterSubnets(logger.Named(logging.NameDiscoveryService), removedSubnets...)
+			if err != nil {
+				logger.Warn("could not deregister subnets", zap.Error(err))
+			}
+		}
+
 		allSubs, _ := records.Subnets{}.FromString(records.AllSubnets)
-		subnetsList := records.SharedSubnets(allSubs, n.subnets, 0)
-		logger.Debug("updated subnets (node-info)",
-			zap.Any("subnets", subnetsList),
+		logger.Debug("updated subntes",
+			zap.Any("subnets", records.SharedSubnets(allSubs, n.subnets, 0)),
+			zap.Ints("added", addedSubnets),
+			zap.Ints("removed", removedSubnets),
 			zap.Duration("took", time.Since(start)),
 		)
 	}

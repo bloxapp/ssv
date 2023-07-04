@@ -311,6 +311,7 @@ func (n *p2pNetwork) setupPubsub(logger *zap.Logger) error {
 		return errors.Wrap(err, "could not setup pubsub")
 	}
 	n.topicsCtrl = tc
+	n.subscriber = newSubscriber(tc, n.fork, n.subnets)
 	logger.Debug("topics controller is ready")
 	return nil
 }
