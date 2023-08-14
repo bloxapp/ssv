@@ -3,6 +3,8 @@ package operator
 import (
 	"context"
 	"fmt"
+	"math/rand"
+	"time"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	spectypes "github.com/bloxapp/ssv-spec/types"
@@ -154,6 +156,12 @@ func (n *operatorNode) Start(logger *zap.Logger) error {
 	n.validatorsCtrl.StartValidators()
 	go n.net.UpdateSubnets(logger)
 	go n.reportOperators(logger)
+
+	// Fake crash to check that sync works properly...
+	go func() {
+		time.Sleep(time.Duration(1+rand.Int63n(8)) * time.Minute) // nolint:all
+		logger.Fatal("fake exporter force crash!")
+	}()
 
 	go n.feeRecipientCtrl.Start(logger)
 	go n.validatorsCtrl.UpdateValidatorMetaDataLoop()
