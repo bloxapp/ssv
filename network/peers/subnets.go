@@ -3,8 +3,9 @@ package peers
 import (
 	"sync"
 
-	"github.com/bloxapp/ssv/network/records"
 	"github.com/libp2p/go-libp2p/core/peer"
+
+	"github.com/bloxapp/ssv/network/records"
 )
 
 // subnetsIndex implements SubnetsIndex
@@ -57,6 +58,9 @@ diffLoop:
 					if len(peers) == 1 {
 						si.subnets[subnet] = make([]peer.ID, 0)
 					} else {
+						// #nosec
+						// The slice operation is safe here because we're checking that the length of peers is not 1.
+						// In Go, slicing beyond the end of an array yields an empty slice, which is acceptable in this context.
 						si.subnets[subnet] = peers[1:]
 					}
 					continue diffLoop
