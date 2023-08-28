@@ -8,16 +8,17 @@ import (
 	"testing"
 	"time"
 
+	forksprotocol "github.com/bloxapp/ssv/protocol/forks"
+	"github.com/bloxapp/ssv/utils/rsaencryption"
 	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/stretchr/testify/require"
-
-	"github.com/bloxapp/ssv/utils/rsaencryption"
 )
 
 func TestSignedNodeInfo_Seal_Consume(t *testing.T) {
 	nodeInfo := &NodeInfo{
-		NetworkID: "testnet",
+		ForkVersion: forksprotocol.GenesisForkVersion,
+		NetworkID:   "testnet",
 		Metadata: &NodeMetadata{
 			NodeVersion:   "v0.1.12",
 			ExecutionNode: "geth/x",
@@ -69,7 +70,8 @@ func TestSignedNodeInfo_Seal_Consume(t *testing.T) {
 
 func TestSignedNodeInfo_Marshal_Unmarshal(t *testing.T) {
 	nodeInfo := &NodeInfo{
-		NetworkID: "testnet",
+		ForkVersion: forksprotocol.GenesisForkVersion,
+		NetworkID:   "testnet",
 		Metadata: &NodeMetadata{
 			NodeVersion:   "v0.1.12",
 			ExecutionNode: "geth/x",

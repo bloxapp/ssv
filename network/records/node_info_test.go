@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	forksprotocol "github.com/bloxapp/ssv/protocol/forks"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/stretchr/testify/require"
 )
@@ -13,7 +14,8 @@ func TestNodeInfo_Seal_Consume(t *testing.T) {
 	netKey, _, err := crypto.GenerateSecp256k1Key(crand.Reader)
 	require.NoError(t, err)
 	ni := &NodeInfo{
-		NetworkID: "testnet",
+		ForkVersion: forksprotocol.GenesisForkVersion,
+		NetworkID:   "testnet",
 		Metadata: &NodeMetadata{
 			NodeVersion:   "v0.1.12",
 			ExecutionNode: "geth/x",
@@ -33,7 +35,8 @@ func TestNodeInfo_Seal_Consume(t *testing.T) {
 
 func TestNodeInfo_Marshal_Unmarshal(t *testing.T) {
 	ni := &NodeInfo{
-		NetworkID: "testnet",
+		ForkVersion: forksprotocol.GenesisForkVersion,
+		NetworkID:   "testnet",
 		Metadata: &NodeMetadata{
 			NodeVersion:   "v0.1.12",
 			ExecutionNode: "geth/x",

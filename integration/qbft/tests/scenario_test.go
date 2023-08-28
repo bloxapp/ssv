@@ -20,6 +20,7 @@ import (
 	"github.com/bloxapp/ssv/network"
 	"github.com/bloxapp/ssv/networkconfig"
 	"github.com/bloxapp/ssv/operator/validator"
+	protocolforks "github.com/bloxapp/ssv/protocol/forks"
 	protocolbeacon "github.com/bloxapp/ssv/protocol/v2/blockchain/beacon"
 	protocolp2p "github.com/bloxapp/ssv/protocol/v2/p2p"
 	protocolstorage "github.com/bloxapp/ssv/protocol/v2/qbft/storage"
@@ -183,7 +184,7 @@ func newStores(logger *zap.Logger) *qbftstorage.QBFTStores {
 		spectypes.BNRoleValidatorRegistration,
 	}
 	for _, role := range roles {
-		storageMap.Add(role, qbftstorage.New(db, role.String()))
+		storageMap.Add(role, qbftstorage.New(db, role.String(), protocolforks.GenesisForkVersion))
 	}
 
 	return storageMap

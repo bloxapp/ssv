@@ -6,11 +6,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/cornelk/hashmap"
-
 	"github.com/bloxapp/ssv/logging"
 	"github.com/bloxapp/ssv/logging/fields"
-	"github.com/bloxapp/ssv/network/commons"
+	"github.com/cornelk/hashmap"
 
 	connmgrcore "github.com/libp2p/go-libp2p/core/connmgr"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -20,6 +18,8 @@ import (
 
 	"github.com/bloxapp/ssv/network"
 	"github.com/bloxapp/ssv/network/discovery"
+	"github.com/bloxapp/ssv/network/forks"
+	forksfactory "github.com/bloxapp/ssv/network/forks/factory"
 	"github.com/bloxapp/ssv/network/peers"
 	"github.com/bloxapp/ssv/network/peers/connections"
 	"github.com/bloxapp/ssv/network/records"
@@ -54,6 +54,7 @@ type p2pNetwork struct {
 	cancel    context.CancelFunc
 
 	interfaceLogger *zap.Logger // struct logger to log in interface methods that do not accept a logger
+	fork            forks.Fork
 	cfg             *Config
 
 	host        host.Host
@@ -88,6 +89,7 @@ func New(logger *zap.Logger, cfg *Config) network.P2PNetwork {
 		ctx:              ctx,
 		cancel:           cancel,
 		interfaceLogger:  logger,
+		fork:             forksfactory.NewFork(cfg.ForkVersion),
 		cfg:              cfg,
 		msgRouter:        cfg.Router,
 		state:            stateClosed,
@@ -235,15 +237,15 @@ func (n *p2pNetwork) UpdateSubnets(logger *zap.Logger) {
 	// there is a pending PR to replace this: https://github.com/bloxapp/ssv/pull/990
 	logger = logger.Named(logging.NameP2PNetwork)
 	ticker := time.NewTicker(2 * time.Second)
-	registeredSubnets := make([]byte, commons.Subnets())
+	registeredSubnets := make([]byte, n.fork.Subnets())
 	defer ticker.Stop()
 	for range ticker.C {
 		start := time.Now()
 
 		// Compute the new subnets according to the active validators.
-		newSubnets := make([]byte, commons.Subnets())
+		newSubnets := make([]byte, n.fork.Subnets())
 		n.activeValidators.Range(func(pkHex string, status validatorStatus) bool {
-			subnet := commons.ValidatorSubnet(pkHex)
+			subnet := n.fork.ValidatorSubnet(pkHex)
 			newSubnets[subnet] = byte(1)
 			return true
 		})

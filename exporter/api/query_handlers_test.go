@@ -16,6 +16,7 @@ import (
 
 	qbftstorage "github.com/bloxapp/ssv/ibft/storage"
 	"github.com/bloxapp/ssv/operator/storage"
+	forksprotocol "github.com/bloxapp/ssv/protocol/forks"
 	protocoltesting "github.com/bloxapp/ssv/protocol/v2/testing"
 	"github.com/bloxapp/ssv/protocol/v2/types"
 	"github.com/bloxapp/ssv/storage/basedb"
@@ -199,7 +200,7 @@ func newStorageForTest(db basedb.Database, logger *zap.Logger, roles ...spectype
 
 	storageMap := qbftstorage.NewStores()
 	for _, role := range roles {
-		storageMap.Add(role, qbftstorage.New(db, role.String()))
+		storageMap.Add(role, qbftstorage.New(db, role.String(), forksprotocol.GenesisForkVersion))
 	}
 
 	return sExporter, storageMap

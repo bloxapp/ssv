@@ -7,10 +7,10 @@ import (
 	"testing"
 
 	spectypes "github.com/bloxapp/ssv-spec/types"
-	"github.com/stretchr/testify/require"
-
 	"github.com/bloxapp/ssv/logging"
+	"github.com/bloxapp/ssv/network/forks/genesis"
 	"github.com/bloxapp/ssv/protocol/v2/types"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRouter(t *testing.T) {
@@ -19,7 +19,7 @@ func TestRouter(t *testing.T) {
 
 	logger := logging.TestLogger(t)
 
-	router := newMessageRouter()
+	router := newMessageRouter(genesis.New().MsgID())
 
 	expectedCount := 1000
 	count := 0

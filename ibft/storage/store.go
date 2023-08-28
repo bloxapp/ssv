@@ -2,6 +2,7 @@ package storage
 
 import (
 	"encoding/binary"
+	"sync"
 
 	specqbft "github.com/bloxapp/ssv-spec/qbft"
 	"github.com/pkg/errors"
@@ -9,6 +10,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.uber.org/zap"
 
+	"github.com/bloxapp/ssv/ibft/storage/forks"
+	forksfactory "github.com/bloxapp/ssv/ibft/storage/forks/factory"
+	forksprotocol "github.com/bloxapp/ssv/protocol/forks"
 	"github.com/bloxapp/ssv/protocol/v2/qbft/instance"
 	qbftstorage "github.com/bloxapp/ssv/protocol/v2/qbft/storage"
 	"github.com/bloxapp/ssv/storage/basedb"
@@ -36,16 +40,29 @@ func init() {
 // ibftStorage struct
 // instanceType is what separates different iBFT eth2 duty types (attestation, proposal and aggregation)
 type ibftStorage struct {
-	prefix []byte
-	db     basedb.Database
+	prefix   []byte
+	db       basedb.Database
+	fork     forks.Fork
+	forkLock *sync.RWMutex
 }
 
 // New create new ibft storage
-func New(db basedb.Database, prefix string) qbftstorage.QBFTStore {
+func New(db basedb.Database, prefix string, forkVersion forksprotocol.ForkVersion) qbftstorage.QBFTStore {
 	return &ibftStorage{
-		prefix: []byte(prefix),
-		db:     db,
+		prefix:   []byte(prefix),
+		db:       db,
+		fork:     forksfactory.NewFork(forkVersion),
+		forkLock: &sync.RWMutex{},
 	}
+}
+
+func (i *ibftStorage) OnFork(logger *zap.Logger, forkVersion forksprotocol.ForkVersion) error {
+	i.forkLock.Lock()
+	defer i.forkLock.Unlock()
+
+	logger.Info("forking ibft storage")
+	i.fork = forksfactory.NewFork(forkVersion)
+	return nil
 }
 
 // GetHighestInstance returns the StoredInstance for the highest instance.
@@ -85,6 +102,9 @@ func (i *ibftStorage) saveInstance(inst *qbftstorage.StoredInstance, toHistory, 
 	}
 
 	if asHighest {
+		i.forkLock.RLock()
+		defer i.forkLock.RUnlock()
+
 		err = i.save(value, highestInstanceKey, inst.State.ID)
 		if err != nil {
 			return errors.Wrap(err, "could not save highest instance")
@@ -103,6 +123,9 @@ func (i *ibftStorage) saveInstance(inst *qbftstorage.StoredInstance, toHistory, 
 
 // GetInstance returns historical StoredInstance for the given identifier and height.
 func (i *ibftStorage) GetInstance(identifier []byte, height specqbft.Height) (*qbftstorage.StoredInstance, error) {
+	i.forkLock.RLock()
+	defer i.forkLock.RUnlock()
+
 	val, found, err := i.get(instanceKey, identifier[:], uInt64ToByteSlice(uint64(height)))
 	if !found {
 		return nil, nil
@@ -119,6 +142,9 @@ func (i *ibftStorage) GetInstance(identifier []byte, height specqbft.Height) (*q
 
 // GetInstancesInRange returns historical StoredInstance's in the given range.
 func (i *ibftStorage) GetInstancesInRange(identifier []byte, from specqbft.Height, to specqbft.Height) ([]*qbftstorage.StoredInstance, error) {
+	i.forkLock.RLock()
+	defer i.forkLock.RUnlock()
+
 	instances := make([]*qbftstorage.StoredInstance, 0)
 
 	for seq := from; seq <= to; seq++ {
@@ -136,6 +162,9 @@ func (i *ibftStorage) GetInstancesInRange(identifier []byte, from specqbft.Heigh
 
 // CleanAllInstances removes all StoredInstance's & highest StoredInstance's for msgID.
 func (i *ibftStorage) CleanAllInstances(logger *zap.Logger, msgID []byte) error {
+	i.forkLock.RLock()
+	defer i.forkLock.RUnlock()
+
 	prefix := i.prefix
 	prefix = append(prefix, msgID[:]...)
 	prefix = append(prefix, []byte(instanceKey)...)

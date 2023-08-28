@@ -3,6 +3,7 @@ package records
 import (
 	"encoding/json"
 
+	forksprotocol "github.com/bloxapp/ssv/protocol/forks"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/record"
 	"github.com/pkg/errors"
@@ -16,6 +17,8 @@ var nodeInfoCodec = []byte("ssv/nodeinfo")
 // it implements record.Record so we can safely sign, exchange and verify the data.
 // for more information see record.Envelope
 type NodeInfo struct {
+	// ForkVersion is the fork version used by the node
+	ForkVersion forksprotocol.ForkVersion
 	// NetworkID is the id of the node's network
 	NetworkID string
 	// Metadata holds node's general information
@@ -23,9 +26,10 @@ type NodeInfo struct {
 }
 
 // NewNodeInfo creates a new node info
-func NewNodeInfo(networkID string) *NodeInfo {
+func NewNodeInfo(forkVersion forksprotocol.ForkVersion, networkID string) *NodeInfo {
 	return &NodeInfo{
-		NetworkID: networkID,
+		ForkVersion: forkVersion,
+		NetworkID:   networkID,
 	}
 }
 
@@ -79,7 +83,7 @@ func (ni *NodeInfo) Codec() []byte {
 // MarshalRecord converts a Record instance to a []byte, so that it can be used as an Envelope payload
 func (ni *NodeInfo) MarshalRecord() ([]byte, error) {
 	parts := []string{
-		"", // deprecated ForkVersion
+		ni.ForkVersion.String(),
 		ni.NetworkID,
 	}
 	if ni.Metadata != nil {
@@ -105,7 +109,7 @@ func (ni *NodeInfo) UnmarshalRecord(data []byte) error {
 	if len(ser.Entries) < 1 {
 		return errors.New("not enough entries in node info, fork version is required")
 	}
-	//ni.ForkVersion = forksprotocol.ForkVersion(ser.Entries[0])
+	ni.ForkVersion = forksprotocol.ForkVersion(ser.Entries[0])
 
 	if len(ser.Entries) < 2 {
 		return errors.New("not enough entries in node info, network ID is required")

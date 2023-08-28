@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	"github.com/bloxapp/ssv/network/forks/genesis"
 	"github.com/bloxapp/ssv/protocol/v2/blockchain/beacon"
 	"github.com/bloxapp/ssv/protocol/v2/message"
 	"github.com/bloxapp/ssv/protocol/v2/queue/worker"
@@ -165,7 +166,7 @@ func setupController(logger *zap.Logger, validators map[string]*validator.Valida
 		},
 		metadataUpdateQueue:    nil,
 		metadataUpdateInterval: 0,
-		messageRouter:          newMessageRouter(),
+		messageRouter:          newMessageRouter(genesis.New().MsgID()),
 		messageWorker: worker.NewWorker(logger, &worker.Config{
 			Ctx:          context.Background(),
 			WorkersCount: 1,
