@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
@@ -178,6 +179,11 @@ func (r *AttesterRunner) ProcessPostConsensus(logger *zap.Logger, signedMsg *spe
 		attestationSubmissionEnd()
 		r.metrics.EndDutyFullFlow(r.GetState().RunningInstance.State.Round)
 		r.metrics.RoleSubmitted()
+
+		jsonatt, err := signedAtt.MarshalJSON()
+		if err == nil {
+			fmt.Printf("\n <<<< JSON ATT - %v >>> \n", string(jsonatt))
+		}
 
 		logger.Info("✅ successfully submitted attestation",
 			zap.String("block_root", hex.EncodeToString(signedAtt.Data.BeaconBlockRoot[:])),
