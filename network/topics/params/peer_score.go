@@ -57,12 +57,12 @@ func PeerScoreParams(oneEpoch, msgIDCacheTTL time.Duration, ipColocationWeight f
 		IPColocationFactorWeight:    ipColocationWeight,
 		IPColocationFactorThreshold: ipColocationThreshold,
 		IPColocationFactorWhitelist: ipWhilelist,
-		SeenMsgTTL:                  msgIDCacheTTL,
-		BehaviourPenaltyWeight:      behaviourPenaltyWeight,
-		BehaviourPenaltyThreshold:   behaviourPenaltyThreshold,
-		BehaviourPenaltyDecay:       behaviourPenaltyDecay,
-		DecayInterval:               oneEpoch,
-		DecayToZero:                 decayToZero,
+		// SeenMsgTTL:                  msgIDCacheTTL,
+		BehaviourPenaltyWeight:    behaviourPenaltyWeight,
+		BehaviourPenaltyThreshold: behaviourPenaltyThreshold,
+		BehaviourPenaltyDecay:     behaviourPenaltyDecay,
+		DecayInterval:             oneEpoch,
+		DecayToZero:               decayToZero,
 		// RetainScore is the time to remember counters for a disconnected peer
 		// TODO: ETH uses 100 epoch, we reduced it to 10 until scoring will be more mature
 		RetainScore: oneEpoch * 10,
