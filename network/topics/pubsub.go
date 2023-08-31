@@ -115,7 +115,7 @@ func NewPubsub(ctx context.Context, logger *zap.Logger, cfg *PububConfig) (*pubs
 	}
 
 	psOpts := []pubsub.Option{
-		pubsub.WithSeenMessagesTTL(cfg.MsgIDCacheTTL),
+		// pubsub.WithSeenMessagesTTL(cfg.MsgIDCacheTTL),
 		pubsub.WithPeerOutboundQueueSize(cfg.OutboundQueueSize),
 		pubsub.WithValidateQueueSize(cfg.ValidationQueueSize),
 		pubsub.WithValidateThrottle(cfg.ValidateThrottle),
