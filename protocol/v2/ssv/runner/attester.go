@@ -182,7 +182,7 @@ func (r *AttesterRunner) ProcessPostConsensus(logger *zap.Logger, signedMsg *spe
 
 		jsonatt, err := signedAtt.MarshalJSON()
 		if err == nil {
-			fmt.Printf("\n <<<< JSON ATT - %v >>> \n", string(jsonatt))
+			fmt.Printf("\n <<<< %s %x JSON ATT - %v >>> \n", string(r.BaseRunner.Share.ValidatorPubKey), r.BaseRunner.Share.ValidatorPubKey, string(jsonatt))
 		}
 
 		logger.Info("✅ successfully submitted attestation",
