@@ -24,20 +24,55 @@ var (
 		Name: "ssv:p2p:pubsub:score:inspect",
 		Help: "Gauge for negative peer scores",
 	}, []string{"pid"})
+	metricPubsubFullMsgs = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "ssv:p2p:pubsub:msg:full_messages",
+		Help: "Count FullMessages",
+	}, []string{})
+	metricPubsubControlMsgs = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "ssv:p2p:pubsub:msg:control_messages",
+		Help: "Count ControlMessages",
+	}, []string{})
+	metricPubsubIHaveMsgs = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "ssv:p2p:pubsub:msg:ihave",
+		Help: "Count of incoming IHAVE messages",
+	}, []string{})
+	metricPubsubIWantMsgs = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "ssv:p2p:pubsub:msg:iwant",
+		Help: "Count of incoming IWANT messages",
+	}, []string{})
+	metricPubsubGraftMsgs = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "ssv:p2p:pubsub:msg:graft",
+		Help: "Count of incoming GRAFT messages",
+	}, []string{})
+	metricPubsubPruneMsgs = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "ssv:p2p:pubsub:msg:prune",
+		Help: "Count of incoming PRUNE messages",
+	}, []string{})
 )
 
 func init() {
 	logger := zap.L()
-	if err := prometheus.Register(metricPubsubTrace); err != nil {
-		logger.Debug("could not register prometheus collector")
+
+	allMetrics := []prometheus.Collector{
+		metricPubsubTrace,
+		metricPubsubOutbound,
+		metricPubsubInbound,
+		metricPubsubPeerScoreInspect,
+		metricPubsubFullMsgs,
+		metricPubsubControlMsgs,
+		metricPubsubIHaveMsgs,
+		metricPubsubIWantMsgs,
+		metricPubsubGraftMsgs,
+		metricPubsubPruneMsgs,
 	}
-	if err := prometheus.Register(metricPubsubOutbound); err != nil {
-		logger.Debug("could not register prometheus collector")
-	}
-	if err := prometheus.Register(metricPubsubInbound); err != nil {
-		logger.Debug("could not register prometheus collector")
-	}
-	if err := prometheus.Register(metricPubsubPeerScoreInspect); err != nil {
-		logger.Debug("could not register prometheus collector")
+
+	for i, c := range allMetrics {
+		if err := prometheus.Register(c); err != nil {
+			// TODO: think how to print metric name
+			logger.Debug("could not register prometheus collector",
+				zap.Int("index", i),
+				zap.Error(err),
+			)
+		}
 	}
 }

@@ -178,6 +178,16 @@ func NewPubSub(ctx context.Context, logger *zap.Logger, cfg *PubSubConfig) (*pub
 	}
 
 	ps, err := pubsub.NewGossipSub(ctx, cfg.Host, psOpts...)
+
+	async.Interval(ctx, 10*time.Second, func() {
+		metrics := ps.GetRouter().GetRouterMetrics()
+		metricPubsubFullMsgs.WithLabelValues().Set(float64(metrics.FullMessages))
+		metricPubsubControlMsgs.WithLabelValues().Set(float64(metrics.ControlMessages))
+		metricPubsubIHaveMsgs.WithLabelValues().Set(float64(metrics.IHAVE))
+		metricPubsubIWantMsgs.WithLabelValues().Set(float64(metrics.IWANT))
+		metricPubsubGraftMsgs.WithLabelValues().Set(float64(metrics.GRAFT))
+		metricPubsubPruneMsgs.WithLabelValues().Set(float64(metrics.PRUNE))
+	})
 	if err != nil {
 		return nil, nil, err
 	}

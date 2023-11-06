@@ -226,3 +226,5 @@ replace github.com/dgraph-io/ristretto => github.com/dgraph-io/ristretto v0.1.1-
 
 //TODO remove this replace when the following PR is merged https://github.com/bloxapp/eth2-key-manager/pull/100
 replace github.com/bloxapp/eth2-key-manager => github.com/bloxapp/eth2-key-manager v1.3.2-0.20231022162227-e2b8264a29a5
+
+replace github.com/libp2p/go-libp2p-pubsub => github.com/MatheusFranco99/go-libp2p-pubsub v0.0.0-20231030123348-ab033f2823d4
