@@ -114,7 +114,9 @@ func (h *handshaker) Handler(logger *zap.Logger) libp2pnetwork.StreamHandler {
 		}
 		err = nodeInfo.Consume(request)
 		if err != nil {
-			return errors.Wrap(err, "could not consume node info request")
+			fierr := errors.Wrap(err, "could not consume node info request")
+			logger.Error("handshake err", zap.Error(fierr))
+			return fierr
 		}
 
 		// Respond with our own NodeInfo.
