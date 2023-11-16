@@ -160,7 +160,11 @@ func (n *p2pNetwork) Start(logger *zap.Logger) error {
 		return nil
 	}
 
-	logger.Info("starting")
+	handshaketype := "permissionless"
+	if n.cfg.Permissioned() {
+		handshaketype = "permissioned"
+	}
+	logger.Info("starting with %s handshake", zap.String("handshake_type", handshaketype))
 
 	go n.startDiscovery(logger)
 
