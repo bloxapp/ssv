@@ -105,9 +105,9 @@ fi
 
 DIR=".k8/hetzner-stage"
 DEPLOY_FILES=(
-  "ssv-node-57-deployment.yml"
-  "ssv-node-58-deployment.yml"
- # "ssv-node-59-deployment.yml"
+  #"ssv-node-57-deployment.yml"
+  #"ssv-node-58-deployment.yml"
+  "ssv-node-59-deployment.yml"
  # "ssv-node-60-deployment.yml"
 )
 
