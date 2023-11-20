@@ -35,6 +35,12 @@ func scoreInspector(logger *zap.Logger, scoreIdx peers.ScoreIndex) pubsub.Extend
 					filtered[topic] = snapshot
 				}
 			}
+
+			// log if peer score is below threshold
+			if peerScores.Score < -1000 {
+				logger.Debug("peer score is below -1000", fields.PeerID(pid), fields.PeerScore(peerScores.Score))
+			}
+
 			// log peer overall score and topics scores
 			logger.Debug("peer scores", fields.PeerID(pid),
 				fields.PeerScore(peerScores.Score),
