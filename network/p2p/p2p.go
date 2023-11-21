@@ -164,7 +164,7 @@ func (n *p2pNetwork) Start(logger *zap.Logger) error {
 
 	go n.startDiscovery(logger)
 
-	async.Interval(n.ctx, connManagerGCInterval, n.peersBalancing(logger))
+	//async.Interval(n.ctx, connManagerGCInterval, n.peersBalancing(logger))
 	// don't report metrics in tests
 	if n.cfg.Metrics != nil {
 		async.Interval(n.ctx, peersReportingInterval, n.reportAllPeers(logger))
