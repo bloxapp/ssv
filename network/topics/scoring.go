@@ -31,7 +31,7 @@ func scoreInspector(logger *zap.Logger, scoreIdx peers.ScoreIndex) pubsub.Extend
 			//filter all topics that have InvalidMessageDeliveries > 0
 			filtered := make(map[string]*pubsub.TopicScoreSnapshot)
 			for topic, snapshot := range peerScores.Topics {
-				if snapshot.InvalidMessageDeliveries > 0 {
+				if snapshot.InvalidMessageDeliveries != 0 || snapshot.MeshMessageDeliveries < 107 {
 					filtered[topic] = snapshot
 				}
 			}
