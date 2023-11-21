@@ -173,7 +173,7 @@ func NewPubSub(ctx context.Context, logger *zap.Logger, cfg *PubSubConfig) (*pub
 		psOpts = append(psOpts, pubsub.WithDirectPeers(cfg.StaticPeers))
 	}
 
-	if cfg.TraceLog {
+	if true {
 		psOpts = append(psOpts, pubsub.WithEventTracer(newTracer(logger)))
 	}
 
