@@ -140,12 +140,16 @@ func (h *SyncCommitteeHandler) HandleInitialDuties(ctx context.Context) {
 	epoch := h.network.Beacon.EstimatedEpochAtSlot(slot)
 	period := h.network.Beacon.EstimatedSyncCommitteePeriodAtEpoch(epoch)
 
+	baseSleepTime := 50 // Milliseconds
+
 	for i := 0; i < maxAttempts; i++ {
 		h.processFetching(ctx, period, slot)
 		if !h.fetchCurrentPeriod {
 			break
 		}
-		h.logger.Error("failed to pre-fetch duties")
+
+		sleepDuration := time.Duration(math.Pow(2, float64(i))*float64(baseSleepTime)) * time.Millisecond
+		time.Sleep(sleepDuration)
 	}
 
 	// At the init time we may not have enough duties to fetch
