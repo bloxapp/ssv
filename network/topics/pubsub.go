@@ -17,6 +17,7 @@ import (
 	"github.com/bloxapp/ssv/network/peers"
 	"github.com/bloxapp/ssv/network/topics/params"
 	"github.com/bloxapp/ssv/utils/async"
+	"github.com/ipfs/go-log"
 )
 
 const (
@@ -174,7 +175,8 @@ func NewPubSub(ctx context.Context, logger *zap.Logger, cfg *PubSubConfig) (*pub
 	}
 
 	if true {
-		psOpts = append(psOpts, pubsub.WithEventTracer(newTracer(logger)))
+		log.SetDebugLogging()
+		// psOpts = append(psOpts, pubsub.WithEventTracer(newTracer(logger)))
 	}
 
 	ps, err := pubsub.NewGossipSub(ctx, cfg.Host, psOpts...)
