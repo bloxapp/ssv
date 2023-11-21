@@ -19,6 +19,9 @@ import (
 // period change at which to prepare the relevant duties.
 var syncCommitteePreparationEpochs = uint64(2)
 
+// number of attempts to prefetch the duties
+const maxAttempts = 5
+
 type SyncCommitteeHandler struct {
 	baseHandler
 
@@ -137,12 +140,13 @@ func (h *SyncCommitteeHandler) HandleInitialDuties(ctx context.Context) {
 	epoch := h.network.Beacon.EstimatedEpochAtSlot(slot)
 	period := h.network.Beacon.EstimatedSyncCommitteePeriodAtEpoch(epoch)
 
-	// We need to fetch also the next period
-	h.fetchNextPeriod = true
-	h.processFetching(ctx, period, slot)
-
-	buildStr := fmt.Sprintf("p%v-e%v-s%v", period, epoch, slot)
-	h.logger.Info("prefetching duties", zap.String("period_epoch_slot_seq", buildStr))
+	for i := 0; i < maxAttempts; i++ {
+		h.processFetching(ctx, period, slot)
+		if !h.fetchCurrentPeriod {
+			break
+		}
+		h.logger.Error("failed to pre-fetch duties")
+	}
 
 	// At the init time we may not have enough duties to fetch
 	// we should not set those values to false in processFetching() call
