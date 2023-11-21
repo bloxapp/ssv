@@ -137,10 +137,12 @@ func (h *SyncCommitteeHandler) HandleInitialDuties(ctx context.Context) {
 	epoch := h.network.Beacon.EstimatedEpochAtSlot(slot)
 	period := h.network.Beacon.EstimatedSyncCommitteePeriodAtEpoch(epoch)
 
-	if h.shouldFetchNextPeriod(slot) {
-		h.fetchNextPeriod = true
-	}
+	// We need to fetch also the next period
+	h.fetchNextPeriod = true
 	h.processFetching(ctx, period, slot)
+
+	buildStr := fmt.Sprintf("p%v-e%v-s%v", period, epoch, slot)
+	h.logger.Info("prefetching duties", zap.String("period_epoch_slot_seq", buildStr))
 
 	// At the init time we may not have enough duties to fetch
 	// we should not set those values to false in processFetching() call
