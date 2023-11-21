@@ -216,7 +216,10 @@ func (d Descriptor) String() string {
 // ValidatorForTopic returns a validation function for the given topic.
 // This function can be used to validate messages within the libp2p pubsub framework.
 func (mv *messageValidator) ValidatorForTopic(_ string) func(ctx context.Context, p peer.ID, pmsg *pubsub.Message) pubsub.ValidationResult {
-	return mv.ValidatePubsubMessage
+	return func(ctx context.Context, p peer.ID, pmsg *pubsub.Message) pubsub.ValidationResult {
+		mv.ValidatePubsubMessage(ctx, p, pmsg)
+		return pubsub.ValidationAccept
+	}
 }
 
 // ValidatePubsubMessage validates the given pubsub message.
