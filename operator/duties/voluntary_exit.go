@@ -80,6 +80,11 @@ func (h *VoluntaryExitHandler) HandleDuties(ctx context.Context) {
 			}
 
 		case exitDescriptor := <-h.validatorExitCh:
+			h.logger.Debug("🛠 scheduling duty for execution",
+				fields.PubKey(exitDescriptor.PubKey[:]),
+				fields.BlockNumber(exitDescriptor.BlockNumber),
+			)
+
 			var blockSlot phase0.Slot
 
 			cachedBlock := h.blockSlotCache.Get(exitDescriptor.BlockNumber)
@@ -112,6 +117,7 @@ func (h *VoluntaryExitHandler) HandleDuties(ctx context.Context) {
 				zap.Uint64("block_slot", uint64(blockSlot)),
 				zap.Uint64("duty_slot", uint64(dutySlot)),
 				fields.BlockNumber(exitDescriptor.BlockNumber),
+				fields.PubKey(exitDescriptor.PubKey[:]),
 			)
 		}
 	}
