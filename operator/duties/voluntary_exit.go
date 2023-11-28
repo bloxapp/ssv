@@ -40,17 +40,13 @@ func (h *VoluntaryExitHandler) Name() string {
 
 func (h *VoluntaryExitHandler) HandleDuties(ctx context.Context) {
 	h.logger.Info("starting duty handler")
-	defer h.logger.Info("stopping duty handler")
 
 	for {
 		select {
 		case <-ctx.Done():
-			h.logger.Debug("🛠 context done")
 			return
 
 		case <-h.ticker.Next():
-			h.logger.Debug("🛠 before ticker event")
-
 			currentSlot := h.ticker.Slot()
 
 			h.logger.Debug("🛠 ticker event", fields.Slot(currentSlot))
@@ -74,11 +70,10 @@ func (h *VoluntaryExitHandler) HandleDuties(ctx context.Context) {
 					fields.Count(dutyCount))
 			}
 
-		case exitDescriptor := <-h.validatorExitCh:
-			h.logger.Debug("🛠 scheduling duty for execution",
-				fields.PubKey(exitDescriptor.PubKey[:]),
-				fields.BlockNumber(exitDescriptor.BlockNumber),
-			)
+		case exitDescriptor, ok := <-h.validatorExitCh:
+			if !ok {
+				return
+			}
 
 			blockSlot, ok := h.blockSlots[exitDescriptor.BlockNumber]
 			if !ok {
@@ -93,7 +88,7 @@ func (h *VoluntaryExitHandler) HandleDuties(ctx context.Context) {
 
 				h.blockSlots[exitDescriptor.BlockNumber] = blockSlot
 				for k, v := range h.blockSlots {
-					if v < blockSlot-voluntaryExitSlotsToPostpone {
+					if v < blockSlot {
 						delete(h.blockSlots, k)
 					}
 				}
