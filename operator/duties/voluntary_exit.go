@@ -3,11 +3,9 @@ package duties
 import (
 	"context"
 	"math/big"
-	"time"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	spectypes "github.com/bloxapp/ssv-spec/types"
-	"github.com/jellydator/ttlcache/v3"
 	"go.uber.org/zap"
 
 	"github.com/bloxapp/ssv/logging/fields"
@@ -25,7 +23,6 @@ type VoluntaryExitHandler struct {
 	baseHandler
 	validatorExitCh <-chan ExitDescriptor
 	dutyQueue       []*spectypes.Duty
-	blockSlotCache  *ttlcache.Cache[uint64, phase0.Slot] // it depends on baseHandler so has to be set in HandleDuties
 }
 
 func NewVoluntaryExitHandler(validatorExitCh <-chan ExitDescriptor) *VoluntaryExitHandler {
@@ -42,14 +39,6 @@ func (h *VoluntaryExitHandler) Name() string {
 func (h *VoluntaryExitHandler) HandleDuties(ctx context.Context) {
 	h.logger.Info("starting duty handler")
 	defer h.logger.Info("stopping duty handler")
-
-	cacheTTL := h.network.Beacon.SlotDurationSec() * time.Duration(h.network.Beacon.SlotsPerEpoch())
-	h.blockSlotCache = ttlcache.New(
-		ttlcache.WithTTL[uint64, phase0.Slot](cacheTTL),
-	)
-
-	h.blockSlotCache.Start()
-	defer h.blockSlotCache.Stop()
 
 	for {
 		select {
@@ -89,22 +78,14 @@ func (h *VoluntaryExitHandler) HandleDuties(ctx context.Context) {
 				fields.BlockNumber(exitDescriptor.BlockNumber),
 			)
 
-			var blockSlot phase0.Slot
-
-			cachedBlock := h.blockSlotCache.Get(exitDescriptor.BlockNumber)
-			if cachedBlock == nil {
-				block, err := h.executionClient.BlockByNumber(ctx, new(big.Int).SetUint64(exitDescriptor.BlockNumber))
-				if err != nil {
-					h.logger.Warn("failed to get block time from execution client, skipping voluntary exit duty",
-						zap.Error(err))
-					continue
-				}
-
-				blockSlot = h.network.Beacon.EstimatedSlotAtTime(int64(block.Time()))
-				h.blockSlotCache.Set(exitDescriptor.BlockNumber, blockSlot, cacheTTL)
-			} else {
-				blockSlot = cachedBlock.Value()
+			block, err := h.executionClient.BlockByNumber(ctx, new(big.Int).SetUint64(exitDescriptor.BlockNumber))
+			if err != nil {
+				h.logger.Warn("failed to get block time from execution client, skipping voluntary exit duty",
+					zap.Error(err))
+				continue
 			}
+
+			blockSlot := h.network.Beacon.EstimatedSlotAtTime(int64(block.Time()))
 
 			dutySlot := blockSlot + voluntaryExitSlotsToPostpone
 
