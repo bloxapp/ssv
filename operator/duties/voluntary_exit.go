@@ -41,6 +41,7 @@ func (h *VoluntaryExitHandler) Name() string {
 
 func (h *VoluntaryExitHandler) HandleDuties(ctx context.Context) {
 	h.logger.Info("starting duty handler")
+	defer h.logger.Info("stopping duty handler")
 
 	cacheTTL := h.network.Beacon.SlotDurationSec() * time.Duration(h.network.Beacon.SlotsPerEpoch())
 	h.blockSlotCache = ttlcache.New(
@@ -53,9 +54,12 @@ func (h *VoluntaryExitHandler) HandleDuties(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			h.logger.Debug("🛠 context done")
 			return
 
 		case <-h.ticker.Next():
+			h.logger.Debug("🛠 before ticker event")
+
 			currentSlot := h.ticker.Slot()
 
 			h.logger.Debug("🛠 ticker event", fields.Slot(currentSlot))
