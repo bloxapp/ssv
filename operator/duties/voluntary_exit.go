@@ -91,8 +91,10 @@ func (h *VoluntaryExitHandler) HandleDuties(ctx context.Context) {
 
 			var blockSlot phase0.Slot
 
+			h.logger.Debug("🛠 checking cache")
 			cachedBlock := h.blockSlotCache.Get(exitDescriptor.BlockNumber)
 			if cachedBlock == nil {
+				h.logger.Debug("🛠 not in cache, fetching")
 				block, err := h.executionClient.BlockByNumber(ctx, new(big.Int).SetUint64(exitDescriptor.BlockNumber))
 				if err != nil {
 					h.logger.Warn("failed to get block time from execution client, skipping voluntary exit duty",
@@ -101,10 +103,15 @@ func (h *VoluntaryExitHandler) HandleDuties(ctx context.Context) {
 				}
 
 				blockSlot = h.network.Beacon.EstimatedSlotAtTime(int64(block.Time()))
+				h.logger.Debug("🛠 not in cache, fetched, updating cache")
 				h.blockSlotCache.Set(exitDescriptor.BlockNumber, blockSlot, cacheTTL)
+				h.logger.Debug("🛠 not in cache, fetched, updated cache")
 			} else {
+				h.logger.Debug("🛠 in cache, going to get value")
 				blockSlot = cachedBlock.Value()
+				h.logger.Debug("🛠 in cache, got value")
 			}
+			h.logger.Debug("🛠 checked cache")
 
 			dutySlot := blockSlot + voluntaryExitSlotsToPostpone
 
