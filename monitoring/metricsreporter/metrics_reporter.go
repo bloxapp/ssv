@@ -137,10 +137,6 @@ var (
 		Name: "ssv_message_non_committee",
 		Help: "The amount of messages not in committee",
 	}, []string{"ssv_msg_type", "decided"})
-	messageDomain = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "ssv_message_domain",
-		Help: "Message counter by domain",
-	}, []string{"domain"})
 )
 
 type MetricsReporter struct {
@@ -374,8 +370,4 @@ func (m *MetricsReporter) NonCommitteeMessage(msgType spectypes.MsgType, decided
 		str = "decided"
 	}
 	nonCommitteeMessages.WithLabelValues(ssvmessage.MsgTypeToString(msgType), str).Inc()
-}
-
-func (m *MetricsReporter) MessageDomain(domain string) {
-	messageDomain.WithLabelValues(domain).Inc()
 }
