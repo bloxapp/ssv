@@ -20,6 +20,7 @@ type metrics interface {
 	ActiveMsgValidationDone(topic string)
 	InCommitteeMessage(msgType spectypes.MsgType, decided bool)
 	NonCommitteeMessage(msgType spectypes.MsgType, decided bool)
+	MessageDomain(domain string)
 }
 
 type nopMetrics struct{}
@@ -36,3 +37,4 @@ func (*nopMetrics) ActiveMsgValidation(string)                                  
 func (*nopMetrics) ActiveMsgValidationDone(string)                               {}
 func (*nopMetrics) InCommitteeMessage(spectypes.MsgType, bool)                   {}
 func (*nopMetrics) NonCommitteeMessage(spectypes.MsgType, bool)                  {}
+func (*nopMetrics) MessageDomain(string)                                         {}

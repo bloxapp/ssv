@@ -378,6 +378,8 @@ func (mv *messageValidator) validateSSVMessage(ssvMessage *spectypes.SSVMessage,
 		return nil, descriptor, err
 	}
 
+	mv.metrics.MessageDomain(hex.EncodeToString(ssvMessage.MsgID.GetDomain()))
+
 	if !bytes.Equal(ssvMessage.MsgID.GetDomain(), mv.netCfg.Domain[:]) {
 		err := ErrWrongDomain
 		err.got = hex.EncodeToString(ssvMessage.MsgID.GetDomain())
