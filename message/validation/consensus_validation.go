@@ -3,7 +3,6 @@ package validation
 // consensus_validation.go contains methods for validating consensus messages
 
 import (
-	"bytes"
 	"fmt"
 	"time"
 
@@ -241,9 +240,9 @@ func (mv *messageValidator) validateSignerBehaviorConsensus(
 	}
 
 	if msgSlot == signerState.Slot && msgRound == signerState.Round {
-		if mv.hasFullData(signedMsg) && signerState.ProposalData != nil && !bytes.Equal(signerState.ProposalData, signedMsg.FullData) {
-			return ErrDuplicatedProposalWithDifferentData
-		}
+		// if mv.hasFullData(signedMsg) && signerState.ProposalData != nil && !bytes.Equal(signerState.ProposalData, signedMsg.FullData) {
+		// 	return ErrDuplicatedProposalWithDifferentData
+		// }
 
 		limits := maxMessageCounts(len(share.Committee))
 		if err := signerState.MessageCounts.ValidateConsensusMessage(signedMsg, limits); err != nil {
