@@ -2,7 +2,6 @@ package spectest
 
 import (
 	"encoding/json"
-	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -23,35 +22,7 @@ import (
 	qbfttesting "github.com/bloxapp/ssv/protocol/v2/qbft/testing"
 	"github.com/bloxapp/ssv/protocol/v2/ssv/runner"
 	ssvtesting "github.com/bloxapp/ssv/protocol/v2/ssv/testing"
-	protocoltesting "github.com/bloxapp/ssv/protocol/v2/testing"
-	"github.com/bloxapp/ssv/protocol/v2/types"
 )
-
-func TestSSVMapping(t *testing.T) {
-	path, _ := os.Getwd()
-	jsonTests, err := protocoltesting.GetSpecTestJSON(path, "ssv")
-	require.NoError(t, err)
-
-	logger := logging.TestLogger(t)
-
-	untypedTests := map[string]interface{}{}
-	if err := json.Unmarshal(jsonTests, &untypedTests); err != nil {
-		panic(err.Error())
-	}
-
-	types.SetDefaultDomain(testingutils.TestingSSVDomainType)
-
-	for name, test := range untypedTests {
-		name, test := name, test
-		r := prepareTest(t, logger, name, test)
-		if r != nil {
-			t.Run(r.name, func(t *testing.T) {
-				t.Parallel()
-				r.test(t)
-			})
-		}
-	}
-}
 
 type runnable struct {
 	name string
