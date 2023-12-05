@@ -109,7 +109,7 @@ func (t *RoundTimer) RoundTimeout(height specqbft.Height, round specqbft.Round) 
 		baseDuration = t.beaconNetwork.SlotDurationSec() / 3
 	case spectypes.BNRoleAggregator, spectypes.BNRoleSyncCommitteeContribution:
 		// two-third of the slot time
-		baseDuration = t.beaconNetwork.SlotDurationSec() / 3 * 2
+		baseDuration = t.beaconNetwork.SlotDurationSec() / 3
 	default:
 		if round <= t.timeoutOptions.quickThreshold {
 			return t.timeoutOptions.quick
