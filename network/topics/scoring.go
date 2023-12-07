@@ -28,12 +28,16 @@ func DefaultScoringConfig() *ScoringConfig {
 func scoreInspector(logger *zap.Logger, scoreIdx peers.ScoreIndex) pubsub.ExtendedPeerScoreInspectFn {
 	return func(scores map[peer.ID]*pubsub.PeerScoreSnapshot) {
 		for pid, peerScores := range scores {
-
 			//filter all topics that have InvalidMessageDeliveries > 0
 			filtered := make(map[string]*pubsub.TopicScoreSnapshot)
 			var totalInvalidMessages float64
 			var totalLowMeshDeliveries int
+
+			var p4ScoreSquaresSum float64
+
 			for topic, snapshot := range peerScores.Topics {
+				p4ScoreSquaresSum += snapshot.InvalidMessageDeliveries * snapshot.InvalidMessageDeliveries
+
 				if snapshot.InvalidMessageDeliveries != 0 {
 					filtered[topic] = snapshot
 				}
@@ -66,6 +70,8 @@ func scoreInspector(logger *zap.Logger, scoreIdx peers.ScoreIndex) pubsub.Extend
 			logger.Debug("peer scores", fields...)
 
 			metricPubsubPeerScoreInspect.WithLabelValues(pid.String()).Set(peerScores.Score)
+			metricPubSubPeerP4Score.WithLabelValues(pid.String()).Set(p4ScoreSquaresSum)
+
 			// err := scoreIdx.Score(pid, scores...)
 			// if err != nil {
 			//	logger.Warn("could not score peer", zap.String("peer", pid.String()), zap.Error(err))
