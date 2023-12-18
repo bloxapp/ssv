@@ -10,8 +10,9 @@ import (
 
 const (
 	// Network Topology
-	gossipSubD          = 8
-	minActiveValidators = 200
+	gossipSubD                = 8
+	minActiveValidators       = 200
+	msgsPerSecondPerValidator = 0.05
 
 	// Overall parameters
 	totalTopicsWeight = 4.0
@@ -30,7 +31,7 @@ const (
 	meshDeliveryDecayEpochs     = time.Duration(16)
 	meshDeliveryDampeningFactor = 1.0 / 50.0
 	meshDeliveryCapFactor       = 16
-	meshScoringEnabled          = false
+	meshScoringEnabled          = true
 
 	// P4
 	invalidMessageDecayEpochs = time.Duration(100)
@@ -65,6 +66,9 @@ type TopicOpts struct {
 
 	// TopicWeight is the weight of the topic
 	TopicWeight float64
+
+	// Cap for sum of scores from topics
+	TopicScoreCap float64
 
 	// P1
 	MaxTimeInMeshScore   float64
@@ -150,11 +154,6 @@ func (o *Options) validate() error {
 	return nil
 }
 
-// maxScore attainable by a peer
-func (o *Options) maxScore() float64 {
-	return (o.Topic.MaxTimeInMeshScore + o.Topic.MaxFirstDeliveryScore) * o.Network.TotalTopicsWeight
-}
-
 // NewOpts creates new TopicOpts instance
 func NewOpts(activeValidators, subnets int) Options {
 	return Options{
@@ -167,7 +166,7 @@ func NewOpts(activeValidators, subnets int) Options {
 }
 
 // NewSubnetTopicOpts creates new TopicOpts for a subnet topic
-func NewSubnetTopicOpts(activeValidators, subnets int) Options {
+func NewSubnetTopicOpts(activeValidators, subnets int, topicScoreCap float64) Options {
 
 	// Create options with default values
 	opts := NewOpts(activeValidators, subnets)
@@ -176,10 +175,11 @@ func NewSubnetTopicOpts(activeValidators, subnets int) Options {
 	// Set topic weight with equal weights
 	opts.Topic.TopicWeight = opts.Network.TotalTopicsWeight / float64(opts.Network.Subnets)
 
+	opts.Topic.TopicScoreCap = topicScoreCap
+
 	// Set expected message rate based on stage metrics
 	validatorsPerSubnet := float64(opts.Network.ActiveValidators) / float64(opts.Network.Subnets)
-	msgsPerValidatorPerSecond := 600.0 / 10000.0
-	opts.Topic.ExpectedMsgRate = validatorsPerSubnet * msgsPerValidatorPerSecond
+	opts.Topic.ExpectedMsgRate = validatorsPerSubnet * msgsPerSecondPerValidator
 
 	return opts
 }
@@ -210,13 +210,13 @@ func TopicParams(opts Options) (*pubsub.TopicScoreParams, error) {
 
 	// P3
 	meshMessageDeliveriesDecay := scoreDecay(opts.Network.OneEpochDuration*opts.Topic.MeshDeliveryDecayEpochs, decayInterval)
-	meshMessageDeliveriesThreshold, err := decayThreshold(meshMessageDeliveriesDecay, (expectedMessagesPerDecayInterval * opts.Topic.MeshDeliveryDampeningFactor))
+	meshMessageDeliveriesThreshold, err := decayThreshold(meshMessageDeliveriesDecay, (expectedMessagesPerDecayInterval * opts.Topic.MeshDeliveryDampeningFactor / float64(opts.Topic.D)))
 	if err != nil {
 		return nil, errors.Wrap(err, "could not calculate threshold for mesh message deliveries threshold")
 	}
 	var meshMessageDeliveriesWeight float64
 	if meshScoringEnabled {
-		meshMessageDeliveriesWeight = -(opts.maxScore() / (opts.Topic.TopicWeight * math.Pow(meshMessageDeliveriesThreshold, 2)))
+		meshMessageDeliveriesWeight = -(opts.Topic.TopicScoreCap / (opts.Topic.TopicWeight * (float64(opts.Network.Subnets) * 1 / 3) * math.Pow(meshMessageDeliveriesThreshold, 2)))
 	}
 	MeshMessageDeliveriesCap := meshMessageDeliveriesThreshold * opts.Topic.MeshDeliveryCapFactor
 

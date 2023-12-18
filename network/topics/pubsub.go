@@ -142,17 +142,18 @@ func NewPubSub(ctx context.Context, logger *zap.Logger, cfg *PubSubConfig) (*pub
 	if cfg.ScoreIndex != nil || inspector != nil {
 		cfg.initScoring()
 
+		peerScoreParams := params.PeerScoreParams(cfg.Scoring.OneEpochDuration, cfg.MsgIDCacheTTL, cfg.Scoring.IPWhilelist...)
+
 		if inspector == nil {
 			inspector = scoreInspector(logger, cfg.ScoreIndex, func(pid peer.ID) bool {
 				return cfg.Host.Network().Connectedness(pid) == libp2pnetwork.Connected
-			})
+			}, peerScoreParams)
 		}
 
 		if inspectInterval == 0 {
 			inspectInterval = defaultScoreInspectInterval
 		}
 
-		peerScoreParams := params.PeerScoreParams(cfg.Scoring.OneEpochDuration, cfg.MsgIDCacheTTL, cfg.Scoring.IPWhilelist...)
 		psOpts = append(psOpts, pubsub.WithPeerScore(peerScoreParams, params.PeerScoreThresholds()),
 			pubsub.WithPeerScoreInspect(inspector, inspectInterval))
 		async.Interval(ctx, time.Hour, func() {
@@ -165,7 +166,7 @@ func NewPubSub(ctx context.Context, logger *zap.Logger, cfg *PubSubConfig) (*pub
 				return 100, 100, 10, nil
 			}
 		}
-		topicScoreFactory = topicScoreParams(logger, cfg)
+		topicScoreFactory = topicScoreParams(logger, cfg, peerScoreParams.TopicScoreCap)
 	}
 
 	if cfg.MsgIDHandler != nil {
