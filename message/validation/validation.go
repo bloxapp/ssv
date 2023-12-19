@@ -25,6 +25,7 @@ import (
 	"golang.org/x/exp/slices"
 
 	"github.com/bloxapp/ssv/logging/fields"
+	"github.com/bloxapp/ssv/message/validation/ratelimiter"
 	"github.com/bloxapp/ssv/network/commons"
 	"github.com/bloxapp/ssv/networkconfig"
 	"github.com/bloxapp/ssv/operator/duties/dutystore"
@@ -77,6 +78,7 @@ type messageValidator struct {
 	dutyStore               *dutystore.Store
 	ownOperatorID           spectypes.OperatorID
 	operatorIDToPubkeyCache *hashmap.Map[spectypes.OperatorID, *rsa.PublicKey]
+	rateLimiter             *ratelimiter.RateLimiter
 
 	// validationLocks is a map of lock per SSV message ID to
 	// prevent concurrent access to the same state.
@@ -99,6 +101,10 @@ func NewMessageValidator(netCfg networkconfig.NetworkConfig, opts ...Option) Mes
 
 	for _, opt := range opts {
 		opt(mv)
+	}
+
+	if mv.rateLimiter == nil {
+		mv.rateLimiter = ratelimiter.New(ratelimiter.DefaultConfig())
 	}
 
 	return mv
@@ -147,6 +153,13 @@ func WithSelfAccept(selfPID peer.ID, selfAccept bool) Option {
 	return func(mv *messageValidator) {
 		mv.selfPID = selfPID
 		mv.selfAccept = selfAccept
+	}
+}
+
+// WithRateLimiter sets the peer rate limiter for the messageValidator.
+func WithRateLimiter(rateLimiter *ratelimiter.RateLimiter) Option {
+	return func(mv *messageValidator) {
+		mv.rateLimiter = rateLimiter
 	}
 }
 
@@ -229,6 +242,11 @@ func (mv *messageValidator) ValidatorForTopic(_ string) func(ctx context.Context
 // ValidatePubsubMessage validates the given pubsub message.
 // Depending on the outcome, it will return one of the pubsub validation results (Accept, Ignore, or Reject).
 func (mv *messageValidator) ValidatePubsubMessage(_ context.Context, peerID peer.ID, pmsg *pubsub.Message) pubsub.ValidationResult {
+	if !mv.rateLimiter.AllowRequest(peerID) {
+		mv.logger.Debug("Rejecting message due to rate limiting", fields.PeerID(peerID))
+		return pubsub.ValidationReject
+	}
+
 	if mv.selfAccept && peerID == mv.selfPID {
 		msg, _ := commons.DecodeNetworkMsg(pmsg.Data)
 		decMsg, _ := queue.DecodeSSVMessage(msg)
@@ -262,6 +280,12 @@ func (mv *messageValidator) ValidatePubsubMessage(_ context.Context, peerID peer
 				}
 
 				mv.metrics.MessageRejected(valErr.Text(), descriptor.Role, round)
+				if errors.Is(err, ErrRSASignature) {
+					mv.rateLimiter.RegisterInvalidRSA(peerID)
+				} else {
+					// if msg is rejected but not because of RSA we count as invalid too
+					mv.rateLimiter.RegisterInvalidMessage(peerID)
+				}
 				return pubsub.ValidationReject
 			}
 
@@ -270,12 +294,16 @@ func (mv *messageValidator) ValidatePubsubMessage(_ context.Context, peerID peer
 				mv.logger.Debug("ignoring invalid message", f...)
 			}
 			mv.metrics.MessageIgnored(valErr.Text(), descriptor.Role, round)
+			mv.rateLimiter.RegisterInvalidMessage(peerID)
+
 			return pubsub.ValidationIgnore
 		}
 
 		mv.metrics.MessageIgnored(err.Error(), descriptor.Role, round)
 		f = append(f, zap.Error(err))
 		mv.logger.Debug("ignoring invalid message", f...)
+		mv.rateLimiter.RegisterInvalidMessage(peerID)
+
 		return pubsub.ValidationIgnore
 	}
 
