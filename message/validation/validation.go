@@ -6,6 +6,7 @@ package validation
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
 	"crypto/rsa"
 	"encoding/hex"
 	"fmt"
@@ -236,6 +237,9 @@ func (mv *messageValidator) ValidatePubsubMessage(_ context.Context, peerID peer
 		pmsg.ValidatorData = decMsg
 		return pubsub.ValidationAccept
 	}
+
+	msgHash := hex.EncodeToString(md5.New().Sum(pmsg.Data))
+	mv.logger.Debug("Got message from ", zap.String("from", pmsg.ReceivedFrom.String()), zap.String("msgHash", msgHash))
 
 	start := time.Now()
 	var validationDurationLabels []string // TODO: implement
