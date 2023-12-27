@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/md5"
 	"crypto/rsa"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"strings"
@@ -238,7 +239,7 @@ func (mv *messageValidator) ValidatePubsubMessage(_ context.Context, peerID peer
 		return pubsub.ValidationAccept
 	}
 
-	msgHash := hex.EncodeToString(md5.New().Sum(pmsg.Data))
+	msgHash := base64.StdEncoding.EncodeToString(md5.New().Sum(pmsg.Data))
 	mv.logger.Debug("Got message from ", zap.String("from", pmsg.ReceivedFrom.String()), zap.String("msgHash", msgHash))
 
 	start := time.Now()
