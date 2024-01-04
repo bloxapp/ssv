@@ -379,12 +379,13 @@ func (mv *messageValidator) validateSignerBehaviorConsensus(
 			}
 
 			type DuplicateProposalLog struct {
-				DataBytes string         `json:"data_bytes"`
-				Consensus any            `json:"consensus"`
-				Data      any            `json:"data"`
-				Slot      phase0.Slot    `json:"slot"`
-				Round     specqbft.Round `json:"round"`
-				Root      string         `json:"root"`
+				DataBytes string                  `json:"data_bytes"`
+				Consensus any                     `json:"consensus"`
+				Data      any                     `json:"data"`
+				Slot      phase0.Slot             `json:"slot"`
+				Round     specqbft.Round          `json:"round"`
+				Root      string                  `json:"root"`
+				SignedMsg *specqbft.SignedMessage `json:"signed_msg"`
 			}
 
 			expectedRoot, _ := specqbft.HashDataRoot(signerState.ProposalData)
@@ -410,6 +411,7 @@ func (mv *messageValidator) validateSignerBehaviorConsensus(
 				Slot:      msgSlot,
 				Round:     msgRound,
 				Root:      hex.EncodeToString(signedMsg.Message.Root[:]),
+				SignedMsg: signedMsg,
 			}
 
 			receivedDataLogJSON, err := json.Marshal(receivedLog)
