@@ -192,6 +192,7 @@ func (mv *messageValidator) validateConsensusMessage(
 				Round     specqbft.Round          `json:"round"`
 				Root      string                  `json:"root"`
 				SignedMsg *specqbft.SignedMessage `json:"signed_msg"`
+				Signer    spectypes.OperatorID    `json:"signer"`
 			}
 
 			receivedLog := ReceivedProposalLog{
@@ -202,6 +203,7 @@ func (mv *messageValidator) validateConsensusMessage(
 				Round:     msgRound,
 				Root:      hex.EncodeToString(signedMsg.Message.Root[:]),
 				SignedMsg: signedMsg,
+				Signer:    signer,
 			}
 
 			receivedDataLogJSON, err := json.Marshal(receivedLog)
