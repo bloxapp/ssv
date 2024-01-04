@@ -386,6 +386,7 @@ func (mv *messageValidator) validateSignerBehaviorConsensus(
 				Round     specqbft.Round          `json:"round"`
 				Root      string                  `json:"root"`
 				SignedMsg *specqbft.SignedMessage `json:"signed_msg"`
+				Signer    spectypes.OperatorID    `json:"signer"`
 			}
 
 			expectedRoot, _ := specqbft.HashDataRoot(signerState.ProposalData)
@@ -397,6 +398,7 @@ func (mv *messageValidator) validateSignerBehaviorConsensus(
 				Slot:      signerState.Slot,
 				Round:     signerState.Round,
 				Root:      hex.EncodeToString(expectedRoot[:]),
+				Signer:    signer,
 			}
 
 			expectedDataLogJSON, err := json.Marshal(expectedLog)
@@ -412,6 +414,7 @@ func (mv *messageValidator) validateSignerBehaviorConsensus(
 				Round:     msgRound,
 				Root:      hex.EncodeToString(signedMsg.Message.Root[:]),
 				SignedMsg: signedMsg,
+				Signer:    signer,
 			}
 
 			receivedDataLogJSON, err := json.Marshal(receivedLog)
