@@ -12,8 +12,10 @@ import (
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	specqbft "github.com/bloxapp/ssv-spec/qbft"
 	spectypes "github.com/bloxapp/ssv-spec/types"
+	"go.uber.org/zap"
 	"golang.org/x/exp/slices"
 
+	"github.com/bloxapp/ssv/logging/fields"
 	"github.com/bloxapp/ssv/protocol/v2/qbft/instance"
 	"github.com/bloxapp/ssv/protocol/v2/qbft/roundtimer"
 	ssvtypes "github.com/bloxapp/ssv/protocol/v2/types"
@@ -134,13 +136,81 @@ func (mv *messageValidator) validateConsensusMessage(
 		}
 		if msgSlot > signerState.Slot {
 			newEpoch := mv.netCfg.Beacon.EstimatedEpochAtSlot(msgSlot) > mv.netCfg.Beacon.EstimatedEpochAtSlot(signerState.Slot)
+			mv.logger.Debug("resetting slot [consensus]",
+				fields.Slot(msgSlot),
+				fields.Round(msgRound),
+				zap.Bool("newEpoch", newEpoch),
+			)
 			signerState.ResetSlot(msgSlot, msgRound, newEpoch)
 		} else if msgSlot == signerState.Slot && msgRound > signerState.Round {
+			mv.logger.Debug("resetting round [consensus]",
+				fields.Round(msgRound),
+			)
 			signerState.ResetRound(msgRound)
 		}
 
 		if mv.hasFullData(signedMsg) && signerState.ProposalData == nil {
 			signerState.ProposalData = signedMsg.FullData
+
+			var receivedOuter any
+
+			receivedConsensusData := &spectypes.ConsensusData{}
+			if err := receivedConsensusData.Decode(signedMsg.FullData); err != nil {
+				receivedOuter = fmt.Sprintf("could not decode received consensus data: %v", err)
+			} else {
+				receivedOuter = receivedConsensusData
+			}
+
+			var receivedInner any
+
+			switch receivedConsensusData.Duty.Type {
+			case spectypes.BNRoleAttester:
+				receivedAttestationData := &phase0.AttestationData{}
+				if err := receivedAttestationData.UnmarshalSSZ(receivedConsensusData.DataSSZ); err != nil {
+					receivedInner = fmt.Sprintf("could not decode received attestation: %v", err)
+				} else {
+					receivedInner = receivedAttestationData
+				}
+
+			case spectypes.BNRoleAggregator:
+				receivedAggData := &phase0.AggregateAndProof{}
+				if err := receivedAggData.UnmarshalSSZ(receivedConsensusData.DataSSZ); err != nil {
+					receivedInner = fmt.Sprintf("could not decode received aggregate: %v", err)
+				} else {
+					receivedInner = receivedAggData
+				}
+
+			default:
+				receivedInner = fmt.Sprintf("duty type %v logging is not implemented", receivedConsensusData.Duty.Type)
+			}
+
+			type DuplicateProposalLog struct {
+				DataBytes string         `json:"data_bytes"`
+				Consensus any            `json:"consensus"`
+				Data      any            `json:"data"`
+				Slot      phase0.Slot    `json:"slot"`
+				Round     specqbft.Round `json:"round"`
+				Root      string         `json:"root"`
+			}
+
+			receivedLog := DuplicateProposalLog{
+				DataBytes: hex.EncodeToString(signedMsg.FullData),
+				Consensus: receivedOuter,
+				Data:      receivedInner,
+				Slot:      msgSlot,
+				Round:     msgRound,
+				Root:      hex.EncodeToString(signedMsg.Message.Root[:]),
+			}
+
+			receivedDataLogJSON, err := json.Marshal(receivedLog)
+			if err != nil {
+				// TODO
+			}
+
+			mv.logger.Debug("received proposal data",
+				fields.Slot(msgSlot),
+				zap.Uint64("signer", signer),
+				zap.String("debug", string(receivedDataLogJSON)))
 		}
 
 		signerState.MessageCounts.RecordConsensusMessage(signedMsg)
