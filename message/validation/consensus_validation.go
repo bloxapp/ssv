@@ -184,22 +184,24 @@ func (mv *messageValidator) validateConsensusMessage(
 				receivedInner = fmt.Sprintf("duty type %v logging is not implemented", receivedConsensusData.Duty.Type)
 			}
 
-			type DuplicateProposalLog struct {
-				DataBytes string         `json:"data_bytes"`
-				Consensus any            `json:"consensus"`
-				Data      any            `json:"data"`
-				Slot      phase0.Slot    `json:"slot"`
-				Round     specqbft.Round `json:"round"`
-				Root      string         `json:"root"`
+			type ReceivedProposalLog struct {
+				DataBytes string                  `json:"data_bytes"`
+				Consensus any                     `json:"consensus"`
+				Data      any                     `json:"data"`
+				Slot      phase0.Slot             `json:"slot"`
+				Round     specqbft.Round          `json:"round"`
+				Root      string                  `json:"root"`
+				SignedMsg *specqbft.SignedMessage `json:"signed_msg"`
 			}
 
-			receivedLog := DuplicateProposalLog{
+			receivedLog := ReceivedProposalLog{
 				DataBytes: hex.EncodeToString(signedMsg.FullData),
 				Consensus: receivedOuter,
 				Data:      receivedInner,
 				Slot:      msgSlot,
 				Round:     msgRound,
 				Root:      hex.EncodeToString(signedMsg.Message.Root[:]),
+				SignedMsg: signedMsg,
 			}
 
 			receivedDataLogJSON, err := json.Marshal(receivedLog)
