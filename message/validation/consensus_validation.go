@@ -149,7 +149,7 @@ func (mv *messageValidator) validateConsensusMessage(
 			signerState.ResetRound(msgRound)
 		}
 
-		if mv.hasFullData(signedMsg) && signerState.ProposalData == nil {
+		if mv.hasFullData(signedMsg) && signedMsg.Message.MsgType != specqbft.RoundChangeMsgType && signerState.ProposalData == nil {
 			signerState.ProposalData = signedMsg.FullData
 
 			var receivedOuter any
@@ -320,7 +320,7 @@ func (mv *messageValidator) validateSignerBehaviorConsensus(
 	}
 
 	if msgSlot == signerState.Slot && msgRound == signerState.Round {
-		if mv.hasFullData(signedMsg) && signerState.ProposalData != nil && !bytes.Equal(signerState.ProposalData, signedMsg.FullData) {
+		if mv.hasFullData(signedMsg) && signedMsg.Message.MsgType != specqbft.RoundChangeMsgType && signerState.ProposalData != nil && !bytes.Equal(signerState.ProposalData, signedMsg.FullData) {
 			var expectedOuter, receivedOuter any
 
 			expectedConsensusData := &spectypes.ConsensusData{}
