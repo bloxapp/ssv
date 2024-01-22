@@ -16,7 +16,7 @@ import (
 
 	"github.com/bloxapp/ssv/logging/fields"
 	"github.com/bloxapp/ssv/protocol/v2/qbft/controller"
-	"github.com/bloxapp/ssv/protocol/v2/ssv/runner/metrics"
+	"github.com/bloxapp/ssv/protocol/v2/types"
 )
 
 type SyncCommitteeRunner struct {
@@ -27,10 +27,11 @@ type SyncCommitteeRunner struct {
 	signer   spectypes.KeyManager
 	valCheck specqbft.ProposedValueCheckF
 
-	metrics metrics.ConsensusMetrics
+	metrics consensusMetricsSubmitter
 }
 
 func NewSyncCommitteeRunner(
+	metrics Metrics,
 	beaconNetwork spectypes.BeaconNetwork,
 	share *spectypes.Share,
 	qbftController *controller.Controller,
@@ -40,20 +41,23 @@ func NewSyncCommitteeRunner(
 	valCheck specqbft.ProposedValueCheckF,
 	highestDecidedSlot phase0.Slot,
 ) Runner {
+	role := spectypes.BNRoleSyncCommittee
+
 	return &SyncCommitteeRunner{
 		BaseRunner: &BaseRunner{
-			BeaconRoleType:     spectypes.BNRoleSyncCommittee,
+			BeaconRoleType:     role,
 			BeaconNetwork:      beaconNetwork,
 			Share:              share,
 			QBFTController:     qbftController,
 			highestDecidedSlot: highestDecidedSlot,
+			SignatureVerifier:  types.NewSignatureVerifier(),
 		},
 
 		beacon:   beacon,
 		network:  network,
 		signer:   signer,
 		valCheck: valCheck,
-		metrics:  metrics.NewConsensusMetrics(spectypes.BNRoleSyncCommittee),
+		metrics:  newConsensusMetricsSubmitter(metrics, role),
 	}
 }
 
@@ -139,7 +143,7 @@ func (r *SyncCommitteeRunner) ProcessPostConsensus(logger *zap.Logger, signedMsg
 	}
 
 	for _, root := range roots {
-		sig, err := r.GetState().ReconstructBeaconSig(r.GetState().PostConsensusContainer, root, r.GetShare().ValidatorPubKey)
+		sig, err := r.BaseRunner.SignatureVerifier.ReconstructSignature(r.GetState().PostConsensusContainer, root, r.GetShare().ValidatorPubKey)
 		if err != nil {
 			return errors.Wrap(err, "could not reconstruct post consensus signature")
 		}

@@ -82,6 +82,7 @@ type ControllerOptions struct {
 	DutyRoles                  []spectypes.BeaconRole
 	StorageMap                 *storage.QBFTStores
 	Metrics                    validator.Metrics
+	SignatureVerifier          *ssvtypes.SignatureVerifier
 	MessageValidator           validation.MessageValidator
 	ValidatorsMap              *validatorsmap.ValidatorsMap
 
@@ -149,8 +150,9 @@ type P2PNetwork interface {
 type controller struct {
 	context context.Context
 
-	logger  *zap.Logger
-	metrics validator.Metrics
+	logger            *zap.Logger
+	metrics           validator.Metrics
+	signatureVerifier *ssvtypes.SignatureVerifier
 
 	sharesStorage     SharesStorage
 	operatorsStorage  registrystorage.Operators
@@ -216,6 +218,7 @@ func NewController(logger *zap.Logger, options ControllerOptions) Controller {
 		GasLimit:          options.GasLimit,
 		MessageValidator:  options.MessageValidator,
 		Metrics:           options.Metrics,
+		SignatureVerifier: options.SignatureVerifier,
 	}
 
 	// If full node, increase queue size to make enough room
@@ -235,6 +238,7 @@ func NewController(logger *zap.Logger, options ControllerOptions) Controller {
 	ctrl := controller{
 		logger:                     logger.Named(logging.NameController),
 		metrics:                    metrics,
+		signatureVerifier:          options.SignatureVerifier,
 		sharesStorage:              options.RegistryStorage.Shares(),
 		operatorsStorage:           options.RegistryStorage,
 		recipientsStorage:          options.RegistryStorage,
@@ -254,7 +258,7 @@ func NewController(logger *zap.Logger, options ControllerOptions) Controller {
 		operatorsIDs: operatorsIDs,
 
 		messageRouter:        newMessageRouter(logger),
-		messageWorker:        worker.NewWorker(logger, workerCfg),
+		messageWorker:        worker.NewWorker(logger, metrics, workerCfg),
 		historySyncBatchSize: options.HistorySyncBatchSize,
 
 		nonCommitteeValidators: ttlcache.New(
@@ -385,7 +389,7 @@ func (c *controller) handleWorkerMessages(msg *queue.DecodedSSVMessage) error {
 			opts := c.validatorOptions
 			opts.SSVShare = share
 			ncv = &nonCommitteeValidator{
-				NonCommitteeValidator: validator.NewNonCommitteeValidator(c.logger, msg.GetID(), opts),
+				NonCommitteeValidator: validator.NewNonCommitteeValidator(c.logger, c.metrics, c.signatureVerifier, msg.GetID(), opts),
 			}
 
 			ttlSlots := nonCommitteeValidatorTTLs[msg.MsgID.GetRoleType()]
@@ -864,7 +868,7 @@ func SetupRunners(ctx context.Context, logger *zap.Logger, options validator.Opt
 		}
 		config.ValueCheckF = valueCheckF
 		identifier := spectypes.NewMsgID(ssvtypes.GetDefaultDomain(), options.SSVShare.Share.ValidatorPubKey, role)
-		qbftCtrl := qbftcontroller.NewController(identifier[:], &options.SSVShare.Share, config, options.FullNode)
+		qbftCtrl := qbftcontroller.NewController(options.Metrics, options.SignatureVerifier, identifier[:], &options.SSVShare.Share, config, options.FullNode)
 		qbftCtrl.NewDecidedHandler = options.NewDecidedHandler
 		return qbftCtrl
 	}
@@ -874,29 +878,29 @@ func SetupRunners(ctx context.Context, logger *zap.Logger, options validator.Opt
 		case spectypes.BNRoleAttester:
 			valCheck := specssv.AttesterValueCheckF(options.Signer, options.BeaconNetwork.GetBeaconNetwork(), options.SSVShare.Share.ValidatorPubKey, options.SSVShare.BeaconMetadata.Index, options.SSVShare.SharePubKey)
 			qbftCtrl := buildController(spectypes.BNRoleAttester, valCheck)
-			runners[role] = runner.NewAttesterRunnner(options.BeaconNetwork.GetBeaconNetwork(), &options.SSVShare.Share, qbftCtrl, options.Beacon, options.Network, options.Signer, valCheck, 0)
+			runners[role] = runner.NewAttesterRunnner(options.Metrics, options.BeaconNetwork.GetBeaconNetwork(), &options.SSVShare.Share, qbftCtrl, options.Beacon, options.Network, options.Signer, valCheck, 0)
 		case spectypes.BNRoleProposer:
 			proposedValueCheck := specssv.ProposerValueCheckF(options.Signer, options.BeaconNetwork.GetBeaconNetwork(), options.SSVShare.Share.ValidatorPubKey, options.SSVShare.BeaconMetadata.Index, options.SSVShare.SharePubKey)
 			qbftCtrl := buildController(spectypes.BNRoleProposer, proposedValueCheck)
-			runners[role] = runner.NewProposerRunner(options.BeaconNetwork.GetBeaconNetwork(), &options.SSVShare.Share, qbftCtrl, options.Beacon, options.Network, options.Signer, proposedValueCheck, 0)
+			runners[role] = runner.NewProposerRunner(options.Metrics, options.BeaconNetwork.GetBeaconNetwork(), &options.SSVShare.Share, qbftCtrl, options.Beacon, options.Network, options.Signer, proposedValueCheck, 0)
 			runners[role].(*runner.ProposerRunner).ProducesBlindedBlocks = options.BuilderProposals // apply blinded block flag
 		case spectypes.BNRoleAggregator:
 			aggregatorValueCheckF := specssv.AggregatorValueCheckF(options.Signer, options.BeaconNetwork.GetBeaconNetwork(), options.SSVShare.Share.ValidatorPubKey, options.SSVShare.BeaconMetadata.Index)
 			qbftCtrl := buildController(spectypes.BNRoleAggregator, aggregatorValueCheckF)
-			runners[role] = runner.NewAggregatorRunner(options.BeaconNetwork.GetBeaconNetwork(), &options.SSVShare.Share, qbftCtrl, options.Beacon, options.Network, options.Signer, aggregatorValueCheckF, 0)
+			runners[role] = runner.NewAggregatorRunner(options.Metrics, options.BeaconNetwork.GetBeaconNetwork(), &options.SSVShare.Share, qbftCtrl, options.Beacon, options.Network, options.Signer, aggregatorValueCheckF, 0)
 		case spectypes.BNRoleSyncCommittee:
 			syncCommitteeValueCheckF := specssv.SyncCommitteeValueCheckF(options.Signer, options.BeaconNetwork.GetBeaconNetwork(), options.SSVShare.ValidatorPubKey, options.SSVShare.BeaconMetadata.Index)
 			qbftCtrl := buildController(spectypes.BNRoleSyncCommittee, syncCommitteeValueCheckF)
-			runners[role] = runner.NewSyncCommitteeRunner(options.BeaconNetwork.GetBeaconNetwork(), &options.SSVShare.Share, qbftCtrl, options.Beacon, options.Network, options.Signer, syncCommitteeValueCheckF, 0)
+			runners[role] = runner.NewSyncCommitteeRunner(options.Metrics, options.BeaconNetwork.GetBeaconNetwork(), &options.SSVShare.Share, qbftCtrl, options.Beacon, options.Network, options.Signer, syncCommitteeValueCheckF, 0)
 		case spectypes.BNRoleSyncCommitteeContribution:
 			syncCommitteeContributionValueCheckF := specssv.SyncCommitteeContributionValueCheckF(options.Signer, options.BeaconNetwork.GetBeaconNetwork(), options.SSVShare.Share.ValidatorPubKey, options.SSVShare.BeaconMetadata.Index)
 			qbftCtrl := buildController(spectypes.BNRoleSyncCommitteeContribution, syncCommitteeContributionValueCheckF)
-			runners[role] = runner.NewSyncCommitteeAggregatorRunner(options.BeaconNetwork.GetBeaconNetwork(), &options.SSVShare.Share, qbftCtrl, options.Beacon, options.Network, options.Signer, syncCommitteeContributionValueCheckF, 0)
+			runners[role] = runner.NewSyncCommitteeAggregatorRunner(options.Metrics, options.BeaconNetwork.GetBeaconNetwork(), &options.SSVShare.Share, qbftCtrl, options.Beacon, options.Network, options.Signer, syncCommitteeContributionValueCheckF, 0)
 		case spectypes.BNRoleValidatorRegistration:
 			qbftCtrl := buildController(spectypes.BNRoleValidatorRegistration, nil)
-			runners[role] = runner.NewValidatorRegistrationRunner(options.BeaconNetwork.GetBeaconNetwork(), &options.SSVShare.Share, qbftCtrl, options.Beacon, options.Network, options.Signer)
+			runners[role] = runner.NewValidatorRegistrationRunner(options.Metrics, options.BeaconNetwork.GetBeaconNetwork(), &options.SSVShare.Share, qbftCtrl, options.Beacon, options.Network, options.Signer)
 		case spectypes.BNRoleVoluntaryExit:
-			runners[role] = runner.NewVoluntaryExitRunner(options.BeaconNetwork.GetBeaconNetwork(), &options.SSVShare.Share, options.Beacon, options.Network, options.Signer)
+			runners[role] = runner.NewVoluntaryExitRunner(options.Metrics, options.BeaconNetwork.GetBeaconNetwork(), &options.SSVShare.Share, options.Beacon, options.Network, options.Signer)
 		}
 	}
 	return runners

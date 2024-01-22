@@ -10,7 +10,6 @@ import (
 
 	"github.com/bloxapp/ssv/logging/fields"
 	"github.com/bloxapp/ssv/protocol/v2/qbft"
-	"github.com/bloxapp/ssv/protocol/v2/types"
 )
 
 // uponPrepare process prepare message
@@ -44,7 +43,7 @@ func (i *Instance) uponPrepare(logger *zap.Logger, signedPrepare *specqbft.Signe
 	i.State.LastPreparedValue = i.State.ProposalAcceptedForCurrentRound.FullData
 	i.State.LastPreparedRound = i.State.Round
 
-	i.metrics.EndStagePrepare()
+	i.metricsSubmitter.EndStagePrepare()
 
 	logger.Debug("🎯 got prepare quorum",
 		fields.Round(i.State.Round),
@@ -70,7 +69,7 @@ func (i *Instance) uponPrepare(logger *zap.Logger, signedPrepare *specqbft.Signe
 
 // getRoundChangeJustification returns the round change justification for the current round.
 // The justification is a quorum of signed prepare messages that agree on state.LastPreparedValue
-func getRoundChangeJustification(state *specqbft.State, config qbft.IConfig, prepareMsgContainer *specqbft.MsgContainer) ([]*specqbft.SignedMessage, error) {
+func (i *Instance) getRoundChangeJustification(state *specqbft.State, config qbft.IConfig, prepareMsgContainer *specqbft.MsgContainer) ([]*specqbft.SignedMessage, error) {
 	if state.LastPreparedValue == nil {
 		return nil, nil
 	}
@@ -83,7 +82,7 @@ func getRoundChangeJustification(state *specqbft.State, config qbft.IConfig, pre
 	prepareMsgs := prepareMsgContainer.MessagesForRound(state.LastPreparedRound)
 	ret := make([]*specqbft.SignedMessage, 0)
 	for _, msg := range prepareMsgs {
-		if err := validSignedPrepareForHeightRoundAndRoot(
+		if err := i.validSignedPrepareForHeightRoundAndRoot(
 			config,
 			msg,
 			state.Height,
@@ -127,7 +126,7 @@ func getRoundChangeJustification(state *specqbft.State, config qbft.IConfig, pre
 
 // validSignedPrepareForHeightRoundAndValue known in dafny spec as validSignedPrepareForHeightRoundAndDigest
 // https://entethalliance.github.io/client-spec/qbft_spec.html#dfn-qbftspecification
-func validSignedPrepareForHeightRoundAndRoot(
+func (i *Instance) validSignedPrepareForHeightRoundAndRoot(
 	config qbft.IConfig,
 	signedPrepare *specqbft.SignedMessage,
 	height specqbft.Height,
@@ -157,7 +156,7 @@ func validSignedPrepareForHeightRoundAndRoot(
 	}
 
 	if config.VerifySignatures() {
-		if err := types.VerifyByOperators(signedPrepare.Signature, signedPrepare, config.GetSignatureDomainType(), spectypes.QBFTSignatureType, operators); err != nil {
+		if err := i.signatureVerifier.VerifyByOperators(signedPrepare.Signature, signedPrepare, config.GetSignatureDomainType(), spectypes.QBFTSignatureType, operators); err != nil {
 			return errors.Wrap(err, "msg signature invalid")
 		}
 	}

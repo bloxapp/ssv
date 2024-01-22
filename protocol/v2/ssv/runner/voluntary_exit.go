@@ -14,7 +14,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/bloxapp/ssv/logging/fields"
-	"github.com/bloxapp/ssv/protocol/v2/ssv/runner/metrics"
+	"github.com/bloxapp/ssv/protocol/v2/types"
 )
 
 // Duty runner for validator voluntary exit duty
@@ -28,27 +28,31 @@ type VoluntaryExitRunner struct {
 
 	voluntaryExit *phase0.VoluntaryExit
 
-	metrics metrics.ConsensusMetrics
+	metricsSubmitter consensusMetricsSubmitter
 }
 
 func NewVoluntaryExitRunner(
+	metrics Metrics,
 	beaconNetwork spectypes.BeaconNetwork,
 	share *spectypes.Share,
 	beacon specssv.BeaconNode,
 	network specssv.Network,
 	signer spectypes.KeyManager,
 ) Runner {
+	role := spectypes.BNRoleVoluntaryExit
+
 	return &VoluntaryExitRunner{
 		BaseRunner: &BaseRunner{
-			BeaconRoleType: spectypes.BNRoleVoluntaryExit,
-			BeaconNetwork:  beaconNetwork,
-			Share:          share,
+			BeaconRoleType:    role,
+			BeaconNetwork:     beaconNetwork,
+			Share:             share,
+			SignatureVerifier: types.NewSignatureVerifier(),
 		},
 
-		beacon:  beacon,
-		network: network,
-		signer:  signer,
-		metrics: metrics.NewConsensusMetrics(spectypes.BNRoleVoluntaryExit),
+		beacon:           beacon,
+		network:          network,
+		signer:           signer,
+		metricsSubmitter: newConsensusMetricsSubmitter(metrics, role),
 	}
 }
 
@@ -76,7 +80,7 @@ func (r *VoluntaryExitRunner) ProcessPreConsensus(logger *zap.Logger, signedMsg 
 
 	// only 1 root, verified in basePreConsensusMsgProcessing
 	root := roots[0]
-	fullSig, err := r.GetState().ReconstructBeaconSig(r.GetState().PreConsensusContainer, root, r.GetShare().ValidatorPubKey)
+	fullSig, err := r.BaseRunner.SignatureVerifier.ReconstructSignature(r.GetState().PreConsensusContainer, root, r.GetShare().ValidatorPubKey)
 	if err != nil {
 		return errors.Wrap(err, "could not reconstruct voluntary exit sig")
 	}

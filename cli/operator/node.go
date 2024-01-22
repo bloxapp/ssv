@@ -51,7 +51,7 @@ import (
 	"github.com/bloxapp/ssv/operator/validator"
 	"github.com/bloxapp/ssv/operator/validatorsmap"
 	beaconprotocol "github.com/bloxapp/ssv/protocol/v2/blockchain/beacon"
-	"github.com/bloxapp/ssv/protocol/v2/types"
+	ssvtypes "github.com/bloxapp/ssv/protocol/v2/types"
 	registrystorage "github.com/bloxapp/ssv/registry/storage"
 	"github.com/bloxapp/ssv/storage/basedb"
 	"github.com/bloxapp/ssv/storage/kv"
@@ -149,7 +149,7 @@ var StartNodeCmd = &cobra.Command{
 		cfg.ConsensusClient.GasLimit = spectypes.DefaultGasLimit
 		cfg.ConsensusClient.Network = networkConfig.Beacon.GetNetwork()
 
-		consensusClient := setupConsensusClient(logger, operatorData.ID, slotTickerProvider)
+		consensusClient := setupConsensusClient(logger, metricsReporter, operatorData.ID, slotTickerProvider)
 
 		executionClient, err := executionclient.New(
 			cmd.Context(),
@@ -217,7 +217,7 @@ var StartNodeCmd = &cobra.Command{
 		cfg.SSVOptions.ValidatorOptions.GasLimit = cfg.ConsensusClient.GasLimit
 
 		if cfg.WsAPIPort != 0 {
-			ws := exporterapi.NewWsServer(cmd.Context(), nil, http.NewServeMux(), cfg.WithPing)
+			ws := exporterapi.NewWsServer(cmd.Context(), metricsReporter, nil, http.NewServeMux(), cfg.WithPing)
 			cfg.SSVOptions.WS = ws
 			cfg.SSVOptions.WsAPIPort = cfg.WsAPIPort
 			cfg.SSVOptions.ValidatorOptions.NewDecidedHandler = decided.NewStreamPublisher(logger, ws)
@@ -242,6 +242,7 @@ var StartNodeCmd = &cobra.Command{
 
 		cfg.SSVOptions.ValidatorOptions.StorageMap = storageMap
 		cfg.SSVOptions.ValidatorOptions.Metrics = metricsReporter
+		cfg.SSVOptions.ValidatorOptions.SignatureVerifier = ssvtypes.NewSignatureVerifier(ssvtypes.WithMetrics(metricsReporter))
 		cfg.SSVOptions.Metrics = metricsReporter
 
 		validatorCtrl = validator.NewController(logger, cfg.SSVOptions.ValidatorOptions)
@@ -504,7 +505,7 @@ func setupSSVNetwork(logger *zap.Logger) (networkconfig.NetworkConfig, error) {
 		return networkconfig.NetworkConfig{}, err
 	}
 
-	types.SetDefaultDomain(networkConfig.Domain)
+	ssvtypes.SetDefaultDomain(networkConfig.Domain)
 
 	nodeType := "light"
 	if cfg.SSVOptions.ValidatorOptions.FullNode {
@@ -541,10 +542,11 @@ func setupP2P(logger *zap.Logger, db basedb.Database, mr metricsreporter.Metrics
 
 func setupConsensusClient(
 	logger *zap.Logger,
+	metrics metricsreporter.MetricsReporter,
 	operatorID spectypes.OperatorID,
 	slotTickerProvider slotticker.Provider,
 ) beaconprotocol.BeaconNode {
-	cl, err := goclient.New(logger, cfg.ConsensusClient, operatorID, slotTickerProvider)
+	cl, err := goclient.New(logger, metrics, cfg.ConsensusClient, operatorID, slotTickerProvider)
 	if err != nil {
 		logger.Fatal("failed to create beacon go-client", zap.Error(err),
 			fields.Address(cfg.ConsensusClient.BeaconNodeAddr))

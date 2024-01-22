@@ -21,7 +21,7 @@ import (
 	"github.com/bloxapp/ssv/beacon/goclient"
 	"github.com/bloxapp/ssv/logging/fields"
 	"github.com/bloxapp/ssv/protocol/v2/qbft/controller"
-	"github.com/bloxapp/ssv/protocol/v2/ssv/runner/metrics"
+	"github.com/bloxapp/ssv/protocol/v2/types"
 )
 
 type ProposerRunner struct {
@@ -34,10 +34,11 @@ type ProposerRunner struct {
 	signer   spectypes.KeyManager
 	valCheck specqbft.ProposedValueCheckF
 
-	metrics metrics.ConsensusMetrics
+	metricsSubmitter consensusMetricsSubmitter
 }
 
 func NewProposerRunner(
+	metrics Metrics,
 	beaconNetwork spectypes.BeaconNetwork,
 	share *spectypes.Share,
 	qbftController *controller.Controller,
@@ -47,20 +48,23 @@ func NewProposerRunner(
 	valCheck specqbft.ProposedValueCheckF,
 	highestDecidedSlot phase0.Slot,
 ) Runner {
+	role := spectypes.BNRoleProposer
+
 	return &ProposerRunner{
 		BaseRunner: &BaseRunner{
-			BeaconRoleType:     spectypes.BNRoleProposer,
+			BeaconRoleType:     role,
 			BeaconNetwork:      beaconNetwork,
 			Share:              share,
 			QBFTController:     qbftController,
 			highestDecidedSlot: highestDecidedSlot,
+			SignatureVerifier:  types.NewSignatureVerifier(),
 		},
 
-		beacon:   beacon,
-		network:  network,
-		signer:   signer,
-		valCheck: valCheck,
-		metrics:  metrics.NewConsensusMetrics(spectypes.BNRoleProposer),
+		beacon:           beacon,
+		network:          network,
+		signer:           signer,
+		valCheck:         valCheck,
+		metricsSubmitter: newConsensusMetricsSubmitter(metrics, role),
 	}
 }
 
@@ -89,12 +93,12 @@ func (r *ProposerRunner) ProcessPreConsensus(logger *zap.Logger, signedMsg *spec
 		return nil
 	}
 
-	r.metrics.EndPreConsensus()
+	r.metricsSubmitter.EndPreConsensus()
 
 	// only 1 root, verified in basePreConsensusMsgProcessing
 	root := roots[0]
 	// randao is relevant only for block proposals, no need to check type
-	fullSig, err := r.GetState().ReconstructBeaconSig(r.GetState().PreConsensusContainer, root, r.GetShare().ValidatorPubKey)
+	fullSig, err := r.BaseRunner.SignatureVerifier.ReconstructSignature(r.GetState().PreConsensusContainer, root, r.GetShare().ValidatorPubKey)
 	if err != nil {
 		return errors.Wrap(err, "could not reconstruct randao sig")
 	}
@@ -150,7 +154,7 @@ func (r *ProposerRunner) ProcessPreConsensus(logger *zap.Logger, signedMsg *spec
 		DataSSZ: byts,
 	}
 
-	r.metrics.StartConsensus()
+	r.metricsSubmitter.StartConsensus()
 	if err := r.BaseRunner.decide(logger, r, input); err != nil {
 		return errors.Wrap(err, "can't start new duty runner instance for duty")
 	}
@@ -168,8 +172,8 @@ func (r *ProposerRunner) ProcessConsensus(logger *zap.Logger, signedMsg *specqbf
 		return nil
 	}
 
-	r.metrics.EndConsensus()
-	r.metrics.StartPostConsensus()
+	r.metricsSubmitter.EndConsensus()
+	r.metricsSubmitter.StartPostConsensus()
 
 	// specific duty sig
 	var blkToSign ssz.HashRoot
@@ -228,17 +232,17 @@ func (r *ProposerRunner) ProcessPostConsensus(logger *zap.Logger, signedMsg *spe
 		return nil
 	}
 
-	r.metrics.EndPostConsensus()
+	r.metricsSubmitter.EndPostConsensus()
 
 	for _, root := range roots {
-		sig, err := r.GetState().ReconstructBeaconSig(r.GetState().PostConsensusContainer, root, r.GetShare().ValidatorPubKey)
+		sig, err := r.BaseRunner.SignatureVerifier.ReconstructSignature(r.GetState().PostConsensusContainer, root, r.GetShare().ValidatorPubKey)
 		if err != nil {
 			return errors.Wrap(err, "could not reconstruct post consensus signature")
 		}
 		specSig := phase0.BLSSignature{}
 		copy(specSig[:], sig)
 
-		blockSubmissionEnd := r.metrics.StartBeaconSubmission()
+		blockSubmissionEnd := r.metricsSubmitter.StartBeaconSubmission()
 
 		start := time.Now()
 		var blk any
@@ -250,7 +254,7 @@ func (r *ProposerRunner) ProcessPostConsensus(logger *zap.Logger, signedMsg *spe
 			blk = vBlindedBlk
 
 			if err := r.GetBeaconNode().SubmitBlindedBeaconBlock(vBlindedBlk, specSig); err != nil {
-				r.metrics.RoleSubmissionFailed()
+				r.metricsSubmitter.RoleSubmissionFailed()
 
 				return errors.Wrap(err, "could not submit to Beacon chain reconstructed signed blinded Beacon block")
 			}
@@ -262,15 +266,15 @@ func (r *ProposerRunner) ProcessPostConsensus(logger *zap.Logger, signedMsg *spe
 			blk = vBlk
 
 			if err := r.GetBeaconNode().SubmitBeaconBlock(vBlk, specSig); err != nil {
-				r.metrics.RoleSubmissionFailed()
+				r.metricsSubmitter.RoleSubmissionFailed()
 
 				return errors.Wrap(err, "could not submit to Beacon chain reconstructed signed Beacon block")
 			}
 		}
 
 		blockSubmissionEnd()
-		r.metrics.EndDutyFullFlow(r.GetState().RunningInstance.State.Round)
-		r.metrics.RoleSubmitted()
+		r.metricsSubmitter.EndDutyFullFlow(r.GetState().RunningInstance.State.Round)
+		r.metricsSubmitter.RoleSubmitted()
 
 		blockSummary, summarizeErr := summarizeBlock(blk)
 		logger.Info("✅ successfully submitted block proposal",
@@ -322,8 +326,8 @@ func (r *ProposerRunner) expectedPostConsensusRootsAndDomain() ([]ssz.HashRoot, 
 // 4) Once consensus decides, sign partial block and broadcast
 // 5) collect 2f+1 partial sigs, reconstruct and broadcast valid block sig to the BN
 func (r *ProposerRunner) executeDuty(logger *zap.Logger, duty *spectypes.Duty) error {
-	r.metrics.StartDutyFullFlow()
-	r.metrics.StartPreConsensus()
+	r.metricsSubmitter.StartDutyFullFlow()
+	r.metricsSubmitter.StartPreConsensus()
 
 	// sign partial randao
 	epoch := r.GetBeaconNode().GetBeaconNetwork().EstimatedEpochAtSlot(duty.Slot)

@@ -11,7 +11,6 @@ import (
 
 	"github.com/bloxapp/ssv/logging/fields"
 	"github.com/bloxapp/ssv/protocol/v2/qbft"
-	"github.com/bloxapp/ssv/protocol/v2/types"
 )
 
 // UponCommit returns true if a quorum of commit messages was received.
@@ -49,7 +48,7 @@ func (i *Instance) UponCommit(logger *zap.Logger, signedCommit *specqbft.SignedM
 			zap.Any("agg-signers", agg.Signers),
 			fields.Root(signedCommit.Message.Root))
 
-		i.metrics.EndStageCommit()
+		i.metricsSubmitter.EndStageCommit()
 
 		return true, fullData, agg, nil
 	}
@@ -123,7 +122,7 @@ func CreateCommit(state *specqbft.State, config qbft.IConfig, root [32]byte) (*s
 	return signedMsg, nil
 }
 
-func BaseCommitValidation(
+func (i *Instance) BaseCommitValidation(
 	config qbft.IConfig,
 	signedCommit *specqbft.SignedMessage,
 	height specqbft.Height,
@@ -141,7 +140,7 @@ func BaseCommitValidation(
 	}
 
 	if config.VerifySignatures() {
-		if err := types.VerifyByOperators(signedCommit.Signature, signedCommit, config.GetSignatureDomainType(), spectypes.QBFTSignatureType, operators); err != nil {
+		if err := i.signatureVerifier.VerifyByOperators(signedCommit.Signature, signedCommit, config.GetSignatureDomainType(), spectypes.QBFTSignatureType, operators); err != nil {
 			return errors.Wrap(err, "msg signature invalid")
 		}
 	}
@@ -149,7 +148,7 @@ func BaseCommitValidation(
 	return nil
 }
 
-func validateCommit(
+func (i *Instance) validateCommit(
 	config qbft.IConfig,
 	signedCommit *specqbft.SignedMessage,
 	height specqbft.Height,
@@ -157,7 +156,7 @@ func validateCommit(
 	proposedMsg *specqbft.SignedMessage,
 	operators []*spectypes.Operator,
 ) error {
-	if err := BaseCommitValidation(config, signedCommit, height, operators); err != nil {
+	if err := i.BaseCommitValidation(config, signedCommit, height, operators); err != nil {
 		return err
 	}
 
