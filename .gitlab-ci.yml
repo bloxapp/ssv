@@ -42,6 +42,7 @@ Build stage Docker image:
   only:
     - stage-copy-0202
 
+       
 # +---------------------+
 # | STAGE HETZNER NODES |
 # +---------------------+
