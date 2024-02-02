@@ -9,9 +9,7 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/attestantio/go-eth2-client/spec/phase0"
 	spectypes "github.com/bloxapp/ssv-spec/types"
-	ethcommon "github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"go.uber.org/zap"
 
@@ -22,10 +20,10 @@ import (
 	qbftstorage "github.com/bloxapp/ssv/ibft/storage"
 	"github.com/bloxapp/ssv/logging/fields"
 	"github.com/bloxapp/ssv/networkconfig"
+	"github.com/bloxapp/ssv/operator/operatordatastore"
 	nodestorage "github.com/bloxapp/ssv/operator/storage"
+	"github.com/bloxapp/ssv/operator/validator/taskexecutor"
 	beaconprotocol "github.com/bloxapp/ssv/protocol/v2/blockchain/beacon"
-	ssvtypes "github.com/bloxapp/ssv/protocol/v2/types"
-	"github.com/bloxapp/ssv/registry/storage"
 	"github.com/bloxapp/ssv/storage/basedb"
 )
 
@@ -47,28 +45,14 @@ var (
 	ErrInferiorBlock = errors.New("block is not higher than the last processed block")
 )
 
-type taskExecutor interface {
-	StartValidator(share *ssvtypes.SSVShare) error
-	StopValidator(pubKey spectypes.ValidatorPK) error
-	LiquidateCluster(owner ethcommon.Address, operatorIDs []uint64, toLiquidate []*ssvtypes.SSVShare) error
-	ReactivateCluster(owner ethcommon.Address, operatorIDs []uint64, toReactivate []*ssvtypes.SSVShare) error
-	UpdateFeeRecipient(owner, recipient ethcommon.Address) error
-	ExitValidator(pubKey phase0.BLSPubKey, blockNumber uint64, validatorIndex phase0.ValidatorIndex) error
-}
-
 type ShareEncryptionKeyProvider = func() (*rsa.PrivateKey, bool, error)
-
-type OperatorData interface {
-	GetOperatorData() *storage.OperatorData
-	SetOperatorData(*storage.OperatorData)
-}
 
 type EventHandler struct {
 	nodeStorage                nodestorage.Storage
-	taskExecutor               taskExecutor
+	taskExecutor               taskexecutor.Executor
 	eventParser                eventparser.Parser
 	networkConfig              networkconfig.NetworkConfig
-	operatorData               OperatorData
+	operatorData               operatordatastore.OperatorDataStore
 	shareEncryptionKeyProvider ShareEncryptionKeyProvider
 	keyManager                 spectypes.KeyManager
 	beacon                     beaconprotocol.BeaconNode
@@ -82,9 +66,9 @@ type EventHandler struct {
 func New(
 	nodeStorage nodestorage.Storage,
 	eventParser eventparser.Parser,
-	taskExecutor taskExecutor,
+	taskExecutor taskexecutor.Executor,
 	networkConfig networkconfig.NetworkConfig,
-	operatorData OperatorData,
+	operatorDataStore operatordatastore.OperatorDataStore,
 	shareEncryptionKeyProvider ShareEncryptionKeyProvider,
 	keyManager spectypes.KeyManager,
 	beacon beaconprotocol.BeaconNode,
@@ -96,7 +80,7 @@ func New(
 		taskExecutor:               taskExecutor,
 		eventParser:                eventParser,
 		networkConfig:              networkConfig,
-		operatorData:               operatorData,
+		operatorData:               operatorDataStore,
 		shareEncryptionKeyProvider: shareEncryptionKeyProvider,
 		keyManager:                 keyManager,
 		beacon:                     beacon,
