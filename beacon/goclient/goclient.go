@@ -174,6 +174,7 @@ func New(logger *zap.Logger, opt beaconprotocol.Options, operatorID spectypes.Op
 		// LogLevel supplies the level of logging to carry out.
 		eth2clienthttp.WithLogLevel(zerolog.DebugLevel),
 		eth2clienthttp.WithTimeout(commonTimeout),
+		eth2clienthttp.WithEnforceJSON(true),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create http client: %w", err)
