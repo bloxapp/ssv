@@ -5,8 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"time"
+
+	eth2apiv1 "github.com/attestantio/go-eth2-client/api/v1"
 
 	"github.com/ethereum/go-ethereum"
 	ethcommon "github.com/ethereum/go-ethereum/common"
@@ -21,7 +24,6 @@ import (
 
 var (
 	ErrClosed        = fmt.Errorf("closed")
-	ErrNotConnected  = fmt.Errorf("not connected")
 	ErrBadInput      = fmt.Errorf("bad input")
 	ErrNothingToSync = errors.New("nothing to sync")
 )
@@ -29,17 +31,20 @@ var (
 // ExecutionClient represents a client for interacting with Ethereum execution client.
 type ExecutionClient struct {
 	// mandatory
-	nodeAddr        string
-	contractAddress ethcommon.Address
+	nodeAddr                string
+	finalizedCheckpointFeed chan *eth2apiv1.FinalizedCheckpointEvent
+	contractAddress         ethcommon.Address
 
 	// optional
-	logger                      *zap.Logger
-	metrics                     metrics
-	followDistance              uint64 // TODO: consider reading the finalized checkpoint from consensus layer
-	connectionTimeout           time.Duration
-	reconnectionInitialInterval time.Duration
-	reconnectionMaxInterval     time.Duration
-	logBatchSize                uint64
+	logger                              *zap.Logger
+	metrics                             metrics
+	connectionTimeout                   time.Duration
+	reconnectionInitialInterval         time.Duration
+	reconnectionMaxInterval             time.Duration
+	logBatchSize                        uint64
+	followDistance                      uint64 // used for backward compatibility only
+	finalizedCheckpointActivationHeight uint64
+	rpcGetHeaderArg                     *big.Int
 
 	// variables
 	client *ethclient.Client
@@ -47,18 +52,26 @@ type ExecutionClient struct {
 }
 
 // New creates a new instance of ExecutionClient.
-func New(ctx context.Context, nodeAddr string, contractAddr ethcommon.Address, opts ...Option) (*ExecutionClient, error) {
+func New(
+	ctx context.Context,
+	nodeAddr string,
+	contractAddr ethcommon.Address,
+	opts ...Option,
+) (*ExecutionClient, error) {
 	client := &ExecutionClient{
-		nodeAddr:                    nodeAddr,
-		contractAddress:             contractAddr,
-		logger:                      zap.NewNop(),
-		metrics:                     nopMetrics{},
-		followDistance:              DefaultFollowDistance,
-		connectionTimeout:           DefaultConnectionTimeout,
-		reconnectionInitialInterval: DefaultReconnectionInitialInterval,
-		reconnectionMaxInterval:     DefaultReconnectionMaxInterval,
-		logBatchSize:                DefaultHistoricalLogsBatchSize, // TODO Make batch of logs adaptive depending on "websocket: read limit"
-		closed:                      make(chan struct{}),
+		nodeAddr:                            nodeAddr,
+		finalizedCheckpointFeed:             make(chan *eth2apiv1.FinalizedCheckpointEvent),
+		contractAddress:                     contractAddr,
+		logger:                              zap.NewNop(),
+		metrics:                             nopMetrics{},
+		rpcGetHeaderArg:                     big.NewInt(defaultRpcGetHeaderArg.Int64()),
+		followDistance:                      DefaultFollowDistance,
+		finalizedCheckpointActivationHeight: math.MaxUint64,
+		connectionTimeout:                   DefaultConnectionTimeout,
+		reconnectionInitialInterval:         DefaultReconnectionInitialInterval,
+		reconnectionMaxInterval:             DefaultReconnectionMaxInterval,
+		logBatchSize:                        DefaultHistoricalLogsBatchSize, // TODO Make batch of logs adaptive depending on "websocket: read limit"
+		closed:                              make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(client)
@@ -73,20 +86,25 @@ func New(ctx context.Context, nodeAddr string, contractAddr ethcommon.Address, o
 // Close shuts down ExecutionClient.
 func (ec *ExecutionClient) Close() error {
 	close(ec.closed)
+	close(ec.finalizedCheckpointFeed)
 	ec.client.Close()
 	return nil
 }
 
 // FetchHistoricalLogs retrieves historical logs emitted by the contract starting from fromBlock.
 func (ec *ExecutionClient) FetchHistoricalLogs(ctx context.Context, fromBlock uint64) (logs <-chan BlockLogs, errors <-chan error, err error) {
+	var toBlock uint64
 	currentBlock, err := ec.client.BlockNumber(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get current block: %w", err)
 	}
-	if currentBlock < ec.followDistance {
-		return nil, nil, ErrNothingToSync
+
+	toBlock, err = ec.GetMaxSafeHeight(ctx, currentBlock)
+
+	if err != nil {
+		return nil, nil, err
 	}
-	toBlock := currentBlock - ec.followDistance
+
 	if toBlock < fromBlock {
 		return nil, nil, ErrNothingToSync
 	}
@@ -195,7 +213,7 @@ func (ec *ExecutionClient) StreamLogs(ctx context.Context, fromBlock uint64) <-c
 				}
 
 				// streamLogsToChan should never return without an error,
-				// so we treat a nil error as a an error by itself.
+				// so we treat a nil error as an error by itself.
 				if err == nil {
 					err = errors.New("streamLogsToChan halted without an error")
 				}
@@ -261,6 +279,18 @@ func (ec *ExecutionClient) isClosed() bool {
 // streamLogsToChan *always* returns the last block it fetched, even if it errored.
 // TODO: consider handling "websocket: read limit exceeded" error and reducing batch size (syncSmartContractsEvents has code for this)
 func (ec *ExecutionClient) streamLogsToChan(ctx context.Context, logs chan<- BlockLogs, fromBlock uint64) (lastBlock uint64, err error) {
+	ec.logger.Debug("streamLatestBlocks", zap.Uint64("fromBlock", fromBlock))
+	lastBlock, err = ec.streamLatestBlocks(ctx, logs, fromBlock)
+
+	if err == nil {
+		ec.logger.Info("forking to handling finalized blocks only on block", zap.Uint64("lastBlock", lastBlock))
+		lastBlock, err = ec.streamFinalizedBlocks(ctx, logs, lastBlock)
+	}
+
+	return lastBlock, err
+}
+
+func (ec *ExecutionClient) streamLatestBlocks(ctx context.Context, logs chan<- BlockLogs, fromBlock uint64) (lastBlock uint64, err error) {
 	heads := make(chan *ethtypes.Header)
 
 	sub, err := ec.client.SubscribeNewHead(ctx, heads)
@@ -284,24 +314,55 @@ func (ec *ExecutionClient) streamLogsToChan(ctx context.Context, logs chan<- Blo
 			return fromBlock, fmt.Errorf("subscription: %w", err)
 
 		case header := <-heads:
+			if ec.IsFinalizedCheckpointForkActivated(header.Number.Uint64()) {
+				return header.Number.Uint64(), nil
+			}
 			if header.Number.Uint64() < ec.followDistance {
 				continue
 			}
 			toBlock := header.Number.Uint64() - ec.followDistance
-			if toBlock < fromBlock {
-				continue
-			}
-			logStream, fetchErrors := ec.fetchLogsInBatches(ctx, fromBlock, toBlock)
-			for block := range logStream {
-				logs <- block
-				lastBlock = block.BlockNumber
-			}
-			if err := <-fetchErrors; err != nil {
+			if err = ec.fetchNewBlocks(ctx, logs, &fromBlock, &toBlock, &lastBlock); err != nil {
 				// If we get an error while fetching, we return the last block we fetched.
-				return lastBlock, fmt.Errorf("fetch logs: %w", err)
+				return lastBlock, err
 			}
-			fromBlock = toBlock + 1
-			ec.metrics.ExecutionClientLastFetchedBlock(fromBlock)
+		}
+	}
+}
+
+func (ec *ExecutionClient) streamFinalizedBlocks(ctx context.Context, logs chan<- BlockLogs, fromBlock uint64) (lastBlock uint64, err error) {
+	lastBlock = fromBlock
+	for {
+		select {
+		case <-ctx.Done():
+			return fromBlock, context.Canceled
+
+		case <-ec.closed:
+			return fromBlock, ErrClosed
+
+		case checkpointData, ok := <-ec.finalizedCheckpointFeed:
+			if !ok {
+				return lastBlock, fmt.Errorf("finalizedCheckpointFeed is closed")
+			}
+			if checkpointData == nil {
+				return lastBlock, fmt.Errorf("finalized checkpointData is nil")
+			}
+			ec.logger.Info("got finalized checkpoint", zap.Uint64("epoch", uint64(checkpointData.Epoch)))
+
+			lastFinalizedBlock, err := ec.client.HeaderByNumber(ctx, ec.FinalizedBlockArg())
+			if err != nil {
+				return lastBlock, fmt.Errorf("failed to get the last finalized block: %w", err)
+			}
+
+			toBlock := lastFinalizedBlock.Number.Uint64()
+
+			if toBlock < ec.finalizedCheckpointActivationHeight {
+				continue // waiting for the "lag" compensation. This should happen only after fork is activated.
+			}
+
+			if err = ec.fetchNewBlocks(ctx, logs, &fromBlock, &toBlock, &lastBlock); err != nil {
+				// If we get an error while fetching, we return the last block we fetched.
+				return lastBlock, err
+			}
 		}
 	}
 }
@@ -354,4 +415,51 @@ func (ec *ExecutionClient) reconnect(ctx context.Context) {
 
 func (ec *ExecutionClient) Filterer() (*contract.ContractFilterer, error) {
 	return contract.NewContractFilterer(ec.contractAddress, ec.client)
+}
+
+func (ec *ExecutionClient) FinalizedBlockArg() *big.Int {
+	return ec.rpcGetHeaderArg
+}
+
+func (ec *ExecutionClient) GetMaxSafeHeight(ctx context.Context, currentBlock uint64) (uint64, error) {
+	if !ec.IsFinalizedCheckpointForkActivated(currentBlock) {
+		if currentBlock < ec.followDistance {
+			return 0, ErrNothingToSync
+		}
+		return currentBlock - ec.followDistance, nil
+	} else {
+		lastFinalizedBlock, err := ec.client.HeaderByNumber(ctx, ec.FinalizedBlockArg())
+		if err != nil {
+			return 0, fmt.Errorf("failed to get the last finalized block: %w", err)
+		}
+
+		return lastFinalizedBlock.Number.Uint64(), nil
+	}
+}
+
+func (ec *ExecutionClient) IsFinalizedCheckpointForkActivated(blockHeight uint64) bool {
+	return blockHeight >= ec.finalizedCheckpointActivationHeight
+}
+
+func (ec *ExecutionClient) fetchNewBlocks(
+	ctx context.Context,
+	logs chan<- BlockLogs,
+	fromBlock *uint64,
+	toBlock *uint64,
+	lastBlock *uint64,
+) error {
+	if *toBlock < *fromBlock {
+		return nil
+	}
+	logStream, fetchErrors := ec.fetchLogsInBatches(ctx, *fromBlock, *toBlock)
+	for block := range logStream {
+		logs <- block
+		*lastBlock = block.BlockNumber
+	}
+	if err := <-fetchErrors; err != nil {
+		return fmt.Errorf("fetch logs: %w", err)
+	}
+	*fromBlock = *toBlock + 1
+	ec.metrics.ExecutionClientLastFetchedBlock(*fromBlock)
+	return nil
 }

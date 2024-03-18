@@ -1,6 +1,7 @@
 package executionclient
 
 import (
+	"github.com/ethereum/go-ethereum/rpc"
 	"time"
 )
 
@@ -11,4 +12,5 @@ const (
 	DefaultFollowDistance              = 8
 	DefaultHistoricalLogsBatchSize     = 5000
 	defaultLogBuf                      = 8 * 1024
+	defaultRpcGetHeaderArg             = rpc.FinalizedBlockNumber
 )

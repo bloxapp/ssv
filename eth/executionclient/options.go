@@ -1,6 +1,11 @@
 package executionclient
 
 import (
+	"context"
+	"fmt"
+	eth2apiv1 "github.com/attestantio/go-eth2-client/api/v1"
+	"github.com/ethereum/go-ethereum/rpc"
+	"math/big"
 	"time"
 
 	"go.uber.org/zap"
@@ -56,5 +61,38 @@ func WithReconnectionMaxInterval(interval time.Duration) Option {
 func WithLogBatchSize(size uint64) Option {
 	return func(s *ExecutionClient) {
 		s.logBatchSize = size
+	}
+}
+
+// WithFinalizedCheckpointsFeed setting up a subscription for beacon sync channel to be consumed in streamLogsToChan
+func WithFinalizedCheckpointsFeed(
+	ctx context.Context,
+	subscribe func(ctx context.Context, finalizedBlocks chan<- *eth2apiv1.FinalizedCheckpointEvent) error,
+) Option {
+	return func(s *ExecutionClient) {
+		if s.finalizedCheckpointFeed == nil {
+			s.finalizedCheckpointFeed = make(chan *eth2apiv1.FinalizedCheckpointEvent)
+		}
+		if err := subscribe(ctx, s.finalizedCheckpointFeed); err != nil {
+			panic(fmt.Errorf("can't setup dependencies for exec client: %w", err))
+		}
+	}
+}
+
+// WithFinalizedCheckpointsFork sets the height for fork switch to handling only finalized blocks
+func WithFinalizedCheckpointsFork(
+	finalizedCheckpointForkActivationHeight uint64,
+) Option {
+	return func(s *ExecutionClient) {
+		s.finalizedCheckpointActivationHeight = finalizedCheckpointForkActivationHeight
+	}
+}
+
+// WithCustomGetHeaderArg sets the exact
+func WithCustomGetHeaderArg(
+	arg rpc.BlockNumber,
+) Option {
+	return func(s *ExecutionClient) {
+		s.rpcGetHeaderArg = big.NewInt(arg.Int64())
 	}
 }

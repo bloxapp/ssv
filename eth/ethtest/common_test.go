@@ -24,6 +24,10 @@ import (
 	"github.com/bloxapp/ssv/operator/validator/mocks"
 )
 
+const (
+	defaultFollowDistance uint64 = 8
+)
+
 type CommonTestInput struct {
 	t             *testing.T
 	sim           *simulator.SimulatedBackend
@@ -65,7 +69,7 @@ type TestEnv struct {
 	httpSrv        *httptest.Server
 	validatorCtrl  *mocks.MockController
 	mockCtrl       *gomock.Controller
-	followDistance *uint64
+	followDistance uint64
 }
 
 func (e *TestEnv) shutdown() {
@@ -90,11 +94,7 @@ func (e *TestEnv) setup(
 	validatorsCount uint64,
 	operatorsCount uint64,
 ) error {
-	if e.followDistance == nil {
-		e.SetDefaultFollowDistance()
-	}
 	logger := zaptest.NewLogger(t)
-
 	// Create operators RSA keys
 	ops, err := createOperators(operatorsCount, 0)
 	if err != nil {
@@ -175,7 +175,9 @@ func (e *TestEnv) setup(
 		addr,
 		contractAddr,
 		executionclient.WithLogger(logger),
-		executionclient.WithFollowDistance(*e.followDistance),
+		executionclient.WithFollowDistance(e.followDistance),
+		//executionclient.WithFinalizedCheckpointsFork(1<<64-1),
+		//executionclient.WithFinalizedCheckpointsFeed(ctx, ethtestutils.SetFinalizedBlocksProducer(sim)),
 	)
 	if err != nil {
 		return err
@@ -209,18 +211,13 @@ func (e *TestEnv) setup(
 	e.validators = validators
 	e.ops = ops
 	e.shares = shares
+	e.followDistance = defaultFollowDistance
 
 	return nil
 }
 
-func (e *TestEnv) SetDefaultFollowDistance() {
-	// 8 is current production offset
-	value := uint64(8)
-	e.followDistance = &value
-}
-
 func (e *TestEnv) CloseFollowDistance(blockNum *uint64) {
-	for i := uint64(0); i < *e.followDistance; i++ {
+	for i := uint64(0); i < e.followDistance; i++ {
 		commitBlock(e.sim, blockNum)
 	}
 }

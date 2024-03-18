@@ -46,6 +46,10 @@ type signer interface {
 	ComputeSigningRoot(object interface{}, domain phase0.Domain) ([32]byte, error)
 }
 
+type eventsProducer interface {
+	SubscribeOnFinalizedBlocks(ctx context.Context, finalizedBlocks chan<- *eth2apiv1.FinalizedCheckpointEvent) error
+}
+
 // BeaconNode interface for all beacon duty calls
 type BeaconNode interface {
 	specssv.BeaconNode // spec beacon interface
@@ -54,6 +58,7 @@ type BeaconNode interface {
 	beaconValidator
 	signer // TODO need to handle differently
 	proposer
+	eventsProducer
 }
 
 // Options for controller struct creation
