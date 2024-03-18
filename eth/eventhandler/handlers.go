@@ -14,6 +14,7 @@ import (
 
 	"github.com/bloxapp/ssv/ekm"
 	"github.com/bloxapp/ssv/eth/contract"
+	"github.com/bloxapp/ssv/eth/eventparser"
 	"github.com/bloxapp/ssv/logging/fields"
 	"github.com/bloxapp/ssv/operator/duties"
 	qbftstorage "github.com/bloxapp/ssv/protocol/v2/qbft/storage"
@@ -40,7 +41,7 @@ var (
 
 func (eh *EventHandler) handleOperatorAdded(txn basedb.Txn, event *contract.ContractOperatorAdded) error {
 	logger := eh.logger.With(
-		fields.EventName(OperatorAdded),
+		fields.EventName(eventparser.OperatorAdded),
 		fields.TxHash(event.Raw.TxHash),
 		fields.OperatorID(event.OperatorId),
 		fields.Owner(event.Owner),
@@ -86,7 +87,7 @@ func (eh *EventHandler) handleOperatorAdded(txn basedb.Txn, event *contract.Cont
 
 func (eh *EventHandler) handleOperatorRemoved(txn basedb.Txn, event *contract.ContractOperatorRemoved) error {
 	logger := eh.logger.With(
-		fields.EventName(OperatorRemoved),
+		fields.EventName(eventparser.OperatorRemoved),
 		fields.TxHash(event.Raw.TxHash),
 		fields.OperatorID(event.OperatorId),
 	)
@@ -125,7 +126,7 @@ func (eh *EventHandler) handleOperatorRemoved(txn basedb.Txn, event *contract.Co
 
 func (eh *EventHandler) handleValidatorAdded(txn basedb.Txn, event *contract.ContractValidatorAdded) (ownShare *ssvtypes.SSVShare, err error) {
 	logger := eh.logger.With(
-		fields.EventName(ValidatorAdded),
+		fields.EventName(eventparser.ValidatorAdded),
 		fields.TxHash(event.Raw.TxHash),
 		fields.Owner(event.Owner),
 		fields.OperatorIDs(event.OperatorIds),
@@ -327,7 +328,7 @@ func (eh *EventHandler) validatorAddedEventToShare(
 
 func (eh *EventHandler) handleValidatorRemoved(txn basedb.Txn, event *contract.ContractValidatorRemoved) (spectypes.ValidatorPK, error) {
 	logger := eh.logger.With(
-		fields.EventName(ValidatorRemoved),
+		fields.EventName(eventparser.ValidatorRemoved),
 		fields.TxHash(event.Raw.TxHash),
 		fields.Owner(event.Owner),
 		fields.OperatorIDs(event.OperatorIds),
@@ -389,7 +390,7 @@ func (eh *EventHandler) handleValidatorRemoved(txn basedb.Txn, event *contract.C
 
 func (eh *EventHandler) handleClusterLiquidated(txn basedb.Txn, event *contract.ContractClusterLiquidated) ([]*ssvtypes.SSVShare, error) {
 	logger := eh.logger.With(
-		fields.EventName(ClusterLiquidated),
+		fields.EventName(eventparser.ClusterLiquidated),
 		fields.TxHash(event.Raw.TxHash),
 		fields.Owner(event.Owner),
 		fields.OperatorIDs(event.OperatorIds),
@@ -411,7 +412,7 @@ func (eh *EventHandler) handleClusterLiquidated(txn basedb.Txn, event *contract.
 
 func (eh *EventHandler) handleClusterReactivated(txn basedb.Txn, event *contract.ContractClusterReactivated) ([]*ssvtypes.SSVShare, error) {
 	logger := eh.logger.With(
-		fields.EventName(ClusterReactivated),
+		fields.EventName(eventparser.ClusterReactivated),
 		fields.TxHash(event.Raw.TxHash),
 		fields.Owner(event.Owner),
 		fields.OperatorIDs(event.OperatorIds),
@@ -440,7 +441,7 @@ func (eh *EventHandler) handleClusterReactivated(txn basedb.Txn, event *contract
 
 func (eh *EventHandler) handleFeeRecipientAddressUpdated(txn basedb.Txn, event *contract.ContractFeeRecipientAddressUpdated) (bool, error) {
 	logger := eh.logger.With(
-		fields.EventName(FeeRecipientAddressUpdated),
+		fields.EventName(eventparser.FeeRecipientAddressUpdated),
 		fields.TxHash(event.Raw.TxHash),
 		fields.Owner(event.Owner),
 		fields.FeeRecipient(event.RecipientAddress.Bytes()),
@@ -535,18 +536,18 @@ func (eh *EventHandler) processClusterEvent(
 ) ([]*ssvtypes.SSVShare, []string, error) {
 	clusterID := ssvtypes.ComputeClusterIDHash(owner, operatorIDs)
 	shares := eh.nodeStorage.Shares().List(txn, registrystorage.ByClusterID(clusterID))
-	toUpdate := make([]*ssvtypes.SSVShare, 0)
-	updatedPubKeys := make([]string, 0)
+	var toUpdate []*ssvtypes.SSVShare
+	var ownShares []*ssvtypes.SSVShare
+	var ownPubKeys []string
 
 	for _, share := range shares {
 		isOperatorShare := share.BelongsToOperator(eh.operatorData.GetOperatorData().ID)
-		if isOperatorShare || eh.fullNode {
-			updatedPubKeys = append(updatedPubKeys, hex.EncodeToString(share.ValidatorPubKey))
-		}
 		if isOperatorShare {
-			share.Liquidated = toLiquidate
-			toUpdate = append(toUpdate, share)
+			ownPubKeys = append(ownPubKeys, hex.EncodeToString(share.ValidatorPubKey))
+			ownShares = append(ownShares, share)
 		}
+		share.Liquidated = toLiquidate
+		toUpdate = append(toUpdate, share)
 	}
 
 	if len(toUpdate) > 0 {
@@ -555,7 +556,7 @@ func (eh *EventHandler) processClusterEvent(
 		}
 	}
 
-	return toUpdate, updatedPubKeys, nil
+	return ownShares, ownPubKeys, nil
 }
 
 // MalformedEventError is returned when event is malformed

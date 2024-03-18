@@ -581,7 +581,6 @@ func setupEventHandling(
 		validatorCtrl,
 		cfg.SSVOptions.ValidatorOptions.ShareEncryptionKeyProvider,
 		cfg.SSVOptions.ValidatorOptions.KeyManager,
-		cfg.SSVOptions.ValidatorOptions.Beacon,
 		storageMap,
 		eventhandler.WithFullNode(),
 		eventhandler.WithLogger(logger),
