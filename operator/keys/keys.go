@@ -1,8 +1,6 @@
 package keys
 
 import (
-	"crypto"
-	"crypto/rand"
 	crand "crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -71,7 +69,8 @@ func GeneratePrivateKey() (OperatorPrivateKey, error) {
 }
 
 type privateKey struct {
-	privKey *rsa.PrivateKey
+	privKey       *rsa.PrivateKey
+	cachedPrivKey any
 }
 
 func (p *privateKey) Public() OperatorPublicKey {
@@ -81,7 +80,7 @@ func (p *privateKey) Public() OperatorPublicKey {
 
 func (p *privateKey) Sign(data []byte) ([]byte, error) {
 	hash := sha256.Sum256(data)
-	return rsa.SignPKCS1v15(nil, p.privKey, crypto.SHA256, hash[:])
+	return SignRSA(p, hash[:])
 }
 
 func (p *privateKey) Decrypt(data []byte) ([]byte, error) {
@@ -105,7 +104,8 @@ func (p *privateKey) EKMHash() (string, error) {
 }
 
 type publicKey struct {
-	pubKey *rsa.PublicKey
+	pubKey       *rsa.PublicKey
+	cachedPubkey any
 }
 
 func PublicKeyFromString(pubKeyString string) (OperatorPublicKey, error) {
@@ -125,12 +125,11 @@ func PublicKeyFromString(pubKeyString string) (OperatorPublicKey, error) {
 }
 
 func (p *publicKey) Encrypt(data []byte) ([]byte, error) {
-	return rsa.EncryptPKCS1v15(rand.Reader, p.pubKey, data)
+	return EncryptRSA(p, data)
 }
 
 func (p *publicKey) Verify(data []byte, signature []byte) error {
-	messageHash := sha256.Sum256(data)
-	return rsa.VerifyPKCS1v15(p.pubKey, crypto.SHA256, messageHash[:], signature)
+	return VerifyRSA(p, data, signature)
 }
 
 func (p *publicKey) Base64() ([]byte, error) {
