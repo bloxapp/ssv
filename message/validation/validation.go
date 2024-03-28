@@ -17,6 +17,7 @@ import (
 	specqbft "github.com/bloxapp/ssv-spec/qbft"
 	spectypes "github.com/bloxapp/ssv-spec/types"
 	"github.com/cornelk/hashmap"
+	"github.com/jellydator/ttlcache/v3"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/pkg/errors"
@@ -52,21 +53,13 @@ const (
 	maxDutiesPerEpoch          = 2
 )
 
-// PubsubMessageValidator defines methods for validating pubsub messages.
-type PubsubMessageValidator interface {
+// MessageValidator validates pubsub and ssv messages. It should be started and stopped afterward.
+type MessageValidator interface {
 	ValidatorForTopic(topic string) func(ctx context.Context, p peer.ID, pmsg *pubsub.Message) pubsub.ValidationResult
 	ValidatePubsubMessage(ctx context.Context, p peer.ID, pmsg *pubsub.Message) pubsub.ValidationResult
-}
-
-// SSVMessageValidator defines methods for validating SSV messages.
-type SSVMessageValidator interface {
 	ValidateSSVMessage(ssvMessage *spectypes.SSVMessage) (*queue.DecodedSSVMessage, Descriptor, error)
-}
-
-// MessageValidator is an interface that combines both PubsubMessageValidator and SSVMessageValidator.
-type MessageValidator interface {
-	PubsubMessageValidator
-	SSVMessageValidator
+	Start()
+	Stop()
 }
 
 // OperatorIDGetter defines a function that returns operator ID.
@@ -76,7 +69,8 @@ type messageValidator struct {
 	logger                  *zap.Logger
 	metrics                 metricsreporter.MetricsReporter
 	netCfg                  networkconfig.NetworkConfig
-	index                   sync.Map
+	state                   *ttlcache.Cache[ConsensusID, *ConsensusState]
+	cacheTTL                time.Duration
 	nodeStorage             operatorstorage.Storage
 	dutyStore               *dutystore.Store
 	getOwnOperatorID        OperatorIDGetter
@@ -93,10 +87,17 @@ type messageValidator struct {
 
 // NewMessageValidator returns a new MessageValidator with the given network configuration and options.
 func NewMessageValidator(netCfg networkconfig.NetworkConfig, opts ...Option) MessageValidator {
+	epochDuration := time.Duration(netCfg.SlotsPerEpoch()) * netCfg.SlotDurationSec()
+	cacheTTL := 2 * epochDuration
+
 	mv := &messageValidator{
-		logger:                  zap.NewNop(),
-		metrics:                 metricsreporter.NewNop(),
-		netCfg:                  netCfg,
+		logger:  zap.NewNop(),
+		metrics: metricsreporter.NewNop(),
+		netCfg:  netCfg,
+		state: ttlcache.New[ConsensusID, *ConsensusState](
+			ttlcache.WithTTL[ConsensusID, *ConsensusState](cacheTTL),
+		),
+		cacheTTL:                cacheTTL,
 		operatorIDToPubkeyCache: hashmap.New[spectypes.OperatorID, *rsa.PublicKey](),
 		getOwnOperatorID:        func() spectypes.OperatorID { return 0 },
 		validationLocks:         make(map[spectypes.MessageID]*sync.Mutex),
@@ -223,6 +224,14 @@ func (d Descriptor) String() string {
 	}
 
 	return sb.String()
+}
+
+func (mv *messageValidator) Start() {
+	go mv.state.Start()
+}
+
+func (mv *messageValidator) Stop() {
+	mv.state.Stop()
 }
 
 // ValidatorForTopic returns a validation function for the given topic.
@@ -560,7 +569,7 @@ func (mv *messageValidator) lateMessage(slot phase0.Slot, role spectypes.BeaconR
 	case spectypes.BNRoleProposer, spectypes.BNRoleSyncCommittee, spectypes.BNRoleSyncCommitteeContribution:
 		ttl = 1 + lateSlotAllowance
 	case spectypes.BNRoleAttester, spectypes.BNRoleAggregator:
-		ttl = 32 + lateSlotAllowance
+		ttl = phase0.Slot(mv.netCfg.SlotsPerEpoch()) + lateSlotAllowance
 	case spectypes.BNRoleValidatorRegistration, spectypes.BNRoleVoluntaryExit:
 		return 0
 	}
@@ -578,15 +587,15 @@ func (mv *messageValidator) consensusState(messageID spectypes.MessageID) *Conse
 		Role:   messageID.GetRoleType(),
 	}
 
-	if _, ok := mv.index.Load(id); !ok {
-		cs := &ConsensusState{
-			Signers: hashmap.New[spectypes.OperatorID, *SignerState](),
-		}
-		mv.index.Store(id, cs)
+	if csItem := mv.state.Get(id); csItem != nil {
+		return csItem.Value()
 	}
 
-	cs, _ := mv.index.Load(id)
-	return cs.(*ConsensusState)
+	cs := &ConsensusState{
+		Signers: hashmap.New[spectypes.OperatorID, *SignerState](),
+	}
+	mv.state.Set(id, cs, mv.cacheTTL)
+	return cs
 }
 
 func (mv *messageValidator) inCommittee(share *ssvtypes.SSVShare) bool {

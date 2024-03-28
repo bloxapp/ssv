@@ -196,6 +196,9 @@ var StartNodeCmd = &cobra.Command{
 			validation.WithOwnOperatorID(getOperatorID),
 		)
 
+		messageValidator.Start()
+		defer messageValidator.Stop()
+
 		cfg.P2pNetworkConfig.Metrics = metricsReporter
 		cfg.P2pNetworkConfig.MessageValidator = messageValidator
 		cfg.SSVOptions.ValidatorOptions.MessageValidator = messageValidator
