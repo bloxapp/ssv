@@ -64,7 +64,7 @@ type BeaconNode interface {
 }
 
 type ExecutionClient interface {
-	BlockByNumber(ctx context.Context, blockNumber *big.Int) (*ethtypes.Block, error)
+	HeaderByNumber(ctx context.Context, blockNumber *big.Int) (*ethtypes.Header, error)
 }
 
 // ValidatorController represents the component that controls validators via the scheduler
