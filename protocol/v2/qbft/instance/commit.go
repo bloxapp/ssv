@@ -123,8 +123,7 @@ func CreateCommit(state *specqbft.State, config qbft.IConfig, root [32]byte) (*s
 	return signedMsg, nil
 }
 
-func BaseCommitValidation(
-	config qbft.IConfig,
+func baseCommitValidationNoVerification(
 	signedCommit *specqbft.SignedMessage,
 	height specqbft.Height,
 	operators []*spectypes.Operator,
@@ -140,6 +139,24 @@ func BaseCommitValidation(
 		return errors.Wrap(err, "signed commit invalid")
 	}
 
+	if !signedCommit.CheckSignersInCommittee(operators) {
+		return errors.New("signers not in committee")
+	}
+
+	return nil
+}
+
+func BaseCommitValidationWithVerification(
+	config qbft.IConfig,
+	signedCommit *specqbft.SignedMessage,
+	height specqbft.Height,
+	operators []*spectypes.Operator,
+) error {
+
+	if err := baseCommitValidationNoVerification(signedCommit, height, operators); err != nil {
+		return err
+	}
+
 	if config.VerifySignatures() {
 		if err := types.VerifyByOperators(signedCommit.Signature, signedCommit, config.GetSignatureDomainType(), spectypes.QBFTSignatureType, operators); err != nil {
 			return errors.Wrap(err, "msg signature invalid")
@@ -150,14 +167,13 @@ func BaseCommitValidation(
 }
 
 func validateCommit(
-	config qbft.IConfig,
 	signedCommit *specqbft.SignedMessage,
 	height specqbft.Height,
 	round specqbft.Round,
 	proposedMsg *specqbft.SignedMessage,
 	operators []*spectypes.Operator,
 ) error {
-	if err := BaseCommitValidation(config, signedCommit, height, operators); err != nil {
+	if err := baseCommitValidationNoVerification(signedCommit, height, operators); err != nil {
 		return err
 	}
 
