@@ -12,17 +12,14 @@ import (
 	"os"
 	"time"
 
-	"github.com/bloxapp/ssv/network"
-
-	spectypes "github.com/bloxapp/ssv-spec/types"
 	ethcommon "github.com/ethereum/go-ethereum/common"
+	"github.com/go-chi/jwtauth/v5"
 	"github.com/ilyakaznacheev/cleanenv"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
-	p2pv1 "github.com/bloxapp/ssv/network/p2p"
-
+	spectypes "github.com/bloxapp/ssv-spec/types"
 	"github.com/bloxapp/ssv/api/handlers"
 	apiserver "github.com/bloxapp/ssv/api/server"
 	"github.com/bloxapp/ssv/beacon/goclient"
@@ -43,6 +40,8 @@ import (
 	"github.com/bloxapp/ssv/migrations"
 	"github.com/bloxapp/ssv/monitoring/metrics"
 	"github.com/bloxapp/ssv/monitoring/metricsreporter"
+	"github.com/bloxapp/ssv/network"
+	p2pv1 "github.com/bloxapp/ssv/network/p2p"
 	"github.com/bloxapp/ssv/networkconfig"
 	"github.com/bloxapp/ssv/nodeprobe"
 	"github.com/bloxapp/ssv/operator"
@@ -82,6 +81,7 @@ type config struct {
 	WithPing                   bool                             `yaml:"WithPing" env:"WITH_PING" env-description:"Whether to send websocket ping messages'"`
 	SSVAPIPort                 int                              `yaml:"SSVAPIPort" env:"SSV_API_PORT" env-description:"Port to listen on for the SSV API."`
 	LocalEventsPath            string                           `yaml:"LocalEventsPath" env:"EVENTS_PATH" env-description:"path to local events"`
+	SecretToken                string                           `yaml:"SecretToken" env:"SECRET_TOKEN" env-description:"secret to access authorized endpoints"`
 }
 
 var cfg config
@@ -313,10 +313,12 @@ var StartNodeCmd = &cobra.Command{
 					Network:         p2pNetwork.(p2pv1.HostProvider).Host().Network(),
 					TopicIndex:      p2pNetwork.(handlers.TopicIndex),
 					NodeProber:      nodeProber,
+					Signer:          operatorKey.Sign,
 				},
 				&handlers.Validators{
 					Shares: nodeStorage.Shares(),
 				},
+				jwtauth.New("HS256", []byte(cfg.SecretToken), nil),
 			)
 			go func() {
 				err := apiServer.Run()
