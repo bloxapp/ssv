@@ -81,13 +81,7 @@ func scoreInspector(logger *zap.Logger, scoreIdx peers.ScoreIndex, logFrequency 
 			}
 			logger.Debug("peer scores", fields...)
 
-			// err := scoreIdx.Score(pid, scores...)
-			// if err != nil {
-			//	logger.Warn("could not score peer", zap.String("peer", pid.String()), zap.Error(err))
-			// } else {
-			//	logger.Debug("peer scores were updated", zap.String("peer", pid.String()),
-			//		zap.Any("scores", scores), zap.Any("topicScores", peerScores.Topics))
-			//}
+			scoreIdx.Score(pid, peerScores.Score)
 		}
 
 		inspections++
