@@ -5,99 +5,117 @@ import (
 	"time"
 
 	specqbft "github.com/bloxapp/ssv-spec/qbft"
+	spectypes "github.com/bloxapp/ssv-spec/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/bloxapp/ssv/protocol/v2/qbft/roundtimer"
+	"github.com/bloxapp/ssv/networkconfig"
 )
 
 func TestMessageValidator_currentEstimatedRound(t *testing.T) {
 	tt := []struct {
 		name           string
+		role           spectypes.BeaconRole
 		sinceSlotStart time.Duration
 		want           specqbft.Round
 	}{
 		{
-			name:           "0s - expected first round",
+			name:           "0s - expected round 1",
+			role:           spectypes.BNRoleAttester,
 			sinceSlotStart: 0,
 			want:           specqbft.FirstRound,
 		},
 		{
-			name:           "QuickTimeout/2 - expected first round",
-			sinceSlotStart: roundtimer.QuickTimeout / 2,
+			name:           "5s - expected round 1",
+			role:           spectypes.BNRoleAttester,
+			sinceSlotStart: 5 * time.Second,
 			want:           specqbft.FirstRound,
 		},
 		{
-			name:           "QuickTimeout - expected first+1 round",
-			sinceSlotStart: roundtimer.QuickTimeout,
-			want:           specqbft.FirstRound + 1,
+			name:           "6s - expected round 2",
+			role:           spectypes.BNRoleAttester,
+			sinceSlotStart: 6 * time.Second,
+			want:           specqbft.Round(2),
 		},
 		{
-			name:           "QuickTimeout*2 - expected first+2 round",
-			sinceSlotStart: roundtimer.QuickTimeout * 2,
-			want:           specqbft.FirstRound + 2,
+			name:           "8s - expected round 3",
+			role:           spectypes.BNRoleAttester,
+			sinceSlotStart: 8 * time.Second,
+			want:           specqbft.Round(3),
 		},
 		{
-			name:           "QuickTimeout*3 - expected first+3 round",
-			sinceSlotStart: roundtimer.QuickTimeout * 3,
-			want:           specqbft.FirstRound + 3,
+			name:           "10s - expected round 4",
+			role:           spectypes.BNRoleAttester,
+			sinceSlotStart: 10 * time.Second,
+			want:           specqbft.Round(4),
 		},
 		{
-			name:           "QuickTimeout*4 - expected first+4 round",
-			sinceSlotStart: roundtimer.QuickTimeout * 4,
-			want:           specqbft.FirstRound + 4,
+			name:           "12s - expected round 5",
+			role:           spectypes.BNRoleAttester,
+			sinceSlotStart: 12 * time.Second,
+			want:           specqbft.Round(5),
 		},
 		{
-			name:           "QuickTimeout*5 - expected first+5 round",
-			sinceSlotStart: roundtimer.QuickTimeout * 5,
-			want:           specqbft.FirstRound + 5,
+			name:           "14s - expected round 6",
+			role:           spectypes.BNRoleAttester,
+			sinceSlotStart: 14 * time.Second,
+			want:           specqbft.Round(6),
 		},
 		{
-			name:           "QuickTimeout*6 - expected first+6 round",
-			sinceSlotStart: roundtimer.QuickTimeout * 6,
-			want:           specqbft.FirstRound + 6,
+			name:           "16s - expected round 7",
+			role:           spectypes.BNRoleAttester,
+			sinceSlotStart: 16 * time.Second,
+			want:           specqbft.Round(7),
 		},
 		{
-			name:           "QuickTimeout*7 - expected first+7 round",
-			sinceSlotStart: roundtimer.QuickTimeout * 7,
-			want:           specqbft.FirstRound + 7,
+			name:           "18s - expected round 8",
+			role:           spectypes.BNRoleAttester,
+			sinceSlotStart: 18 * time.Second,
+			want:           specqbft.Round(8),
 		},
 		{
-			name:           "QuickTimeout*8 - expected first+8 round",
-			sinceSlotStart: roundtimer.QuickTimeout * 8,
-			want:           specqbft.FirstRound + 8,
+			name:           "20s - expected round 9",
+			role:           spectypes.BNRoleAttester,
+			sinceSlotStart: 20 * time.Second,
+			want:           specqbft.Round(9),
 		},
 		{
-			name:           "QuickTimeout*9 - expected first+8 round",
-			sinceSlotStart: roundtimer.QuickTimeout * time.Duration(roundtimer.QuickTimeoutThreshold+1),
-			want:           roundtimer.QuickTimeoutThreshold + 1,
+			name:           "2m20s - expected round 10",
+			role:           spectypes.BNRoleAttester,
+			sinceSlotStart: 2*time.Minute + 20*time.Second,
+			want:           specqbft.Round(10),
 		},
 		{
-			name:           "QuickTimeout*10 - expected first+8 round",
-			sinceSlotStart: roundtimer.QuickTimeout * time.Duration(roundtimer.QuickTimeoutThreshold+2),
-			want:           roundtimer.QuickTimeoutThreshold + 1,
+			name:           "4m20s - expected round 11",
+			role:           spectypes.BNRoleAttester,
+			sinceSlotStart: 4*time.Minute + 20*time.Second,
+			want:           specqbft.Round(11),
 		},
 		{
-			name:           "(QuickTimeout*8 + SlowTimeout) - expected first+9 round",
-			sinceSlotStart: roundtimer.QuickTimeout*time.Duration(roundtimer.QuickTimeoutThreshold) + roundtimer.SlowTimeout,
-			want:           roundtimer.QuickTimeoutThreshold + 2,
+			name:           "6m20s - expected round 12",
+			role:           spectypes.BNRoleAttester,
+			sinceSlotStart: 6*time.Minute + 20*time.Second,
+			want:           specqbft.Round(12),
 		},
 		{
-			name:           "(QuickTimeout*8 + SlowTimeout*2) - expected first+10 round",
-			sinceSlotStart: roundtimer.QuickTimeout*time.Duration(roundtimer.QuickTimeoutThreshold) + roundtimer.SlowTimeout*2,
-			want:           roundtimer.QuickTimeoutThreshold + 3,
+			name:           "8m20s - expected round 13",
+			role:           spectypes.BNRoleAttester,
+			sinceSlotStart: 8*time.Minute + 20*time.Second,
+			want:           specqbft.Round(13),
 		},
 		{
-			name:           "(QuickTimeout*8 + SlowTimeout*3) - expected first+11 round",
-			sinceSlotStart: roundtimer.QuickTimeout*time.Duration(roundtimer.QuickTimeoutThreshold) + roundtimer.SlowTimeout*3,
-			want:           roundtimer.QuickTimeoutThreshold + 4,
+			name:           "99999s - expected round 13",
+			role:           spectypes.BNRoleAttester,
+			sinceSlotStart: 99999 * time.Second,
+			want:           specqbft.Round(13),
 		},
 	}
 
 	for _, tc := range tt {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			mv := &messageValidator{}
-			got := mv.currentEstimatedRound(tc.sinceSlotStart)
+			mv := NewMessageValidator(networkconfig.TestNetwork).(*messageValidator)
+
+			got := mv.roundThresholdMapping.EstimatedRound(tc.role, tc.sinceSlotStart)
 			require.Equal(t, tc.want, got)
 		})
 	}

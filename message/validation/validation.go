@@ -25,6 +25,7 @@ import (
 	"golang.org/x/exp/slices"
 
 	"github.com/bloxapp/ssv/logging/fields"
+	"github.com/bloxapp/ssv/message/validation/roundthresholds"
 	"github.com/bloxapp/ssv/monitoring/metricsreporter"
 	"github.com/bloxapp/ssv/network/commons"
 	"github.com/bloxapp/ssv/networkconfig"
@@ -75,12 +76,14 @@ type OperatorIDGetter func() spectypes.OperatorID
 type messageValidator struct {
 	logger                  *zap.Logger
 	metrics                 metricsreporter.MetricsReporter
+	beaconRoles             map[spectypes.BeaconRole]bool
 	netCfg                  networkconfig.NetworkConfig
 	index                   sync.Map
 	nodeStorage             operatorstorage.Storage
 	dutyStore               *dutystore.Store
 	getOwnOperatorID        OperatorIDGetter
 	operatorIDToPubkeyCache *hashmap.Map[spectypes.OperatorID, *rsa.PublicKey]
+	roundThresholdMapping   *roundthresholds.Mapping
 
 	// validationLocks is a map of lock per SSV message ID to
 	// prevent concurrent access to the same state.
@@ -94,8 +97,17 @@ type messageValidator struct {
 // NewMessageValidator returns a new MessageValidator with the given network configuration and options.
 func NewMessageValidator(netCfg networkconfig.NetworkConfig, opts ...Option) MessageValidator {
 	mv := &messageValidator{
-		logger:                  zap.NewNop(),
-		metrics:                 metricsreporter.NewNop(),
+		logger:  zap.NewNop(),
+		metrics: metricsreporter.NewNop(),
+		beaconRoles: map[spectypes.BeaconRole]bool{
+			spectypes.BNRoleAttester:                  true,
+			spectypes.BNRoleAggregator:                true,
+			spectypes.BNRoleProposer:                  true,
+			spectypes.BNRoleSyncCommittee:             true,
+			spectypes.BNRoleSyncCommitteeContribution: true,
+			spectypes.BNRoleValidatorRegistration:     false,
+			spectypes.BNRoleVoluntaryExit:             false,
+		},
 		netCfg:                  netCfg,
 		operatorIDToPubkeyCache: hashmap.New[spectypes.OperatorID, *rsa.PublicKey](),
 		getOwnOperatorID:        func() spectypes.OperatorID { return 0 },
@@ -104,6 +116,14 @@ func NewMessageValidator(netCfg networkconfig.NetworkConfig, opts ...Option) Mes
 
 	for _, opt := range opts {
 		opt(mv)
+	}
+
+	mv.roundThresholdMapping = roundthresholds.NewMapping(mv.logger, netCfg.Beacon, mv.allowedSlots)
+
+	for role, hasConsensus := range mv.beaconRoles {
+		if hasConsensus {
+			mv.roundThresholdMapping.InitThresholds(role)
+		}
 	}
 
 	return mv
@@ -555,21 +575,27 @@ func (mv *messageValidator) earlyMessage(slot phase0.Slot, receivedAt time.Time)
 }
 
 func (mv *messageValidator) lateMessage(slot phase0.Slot, role spectypes.BeaconRole, receivedAt time.Time) time.Duration {
-	var ttl phase0.Slot
-	switch role {
-	case spectypes.BNRoleProposer, spectypes.BNRoleSyncCommittee, spectypes.BNRoleSyncCommitteeContribution:
-		ttl = 1 + lateSlotAllowance
-	case spectypes.BNRoleAttester, spectypes.BNRoleAggregator:
-		ttl = 32 + lateSlotAllowance
-	case spectypes.BNRoleValidatorRegistration, spectypes.BNRoleVoluntaryExit:
-		return 0
+	allowedSlots := mv.allowedSlots(role)
+	if allowedSlots != 0 {
+		allowedSlots += lateSlotAllowance
 	}
 
-	deadline := mv.netCfg.Beacon.GetSlotStartTime(slot + ttl).
+	deadline := mv.netCfg.Beacon.GetSlotStartTime(slot + allowedSlots).
 		Add(lateMessageMargin).Add(clockErrorTolerance)
 
 	return mv.netCfg.Beacon.GetSlotStartTime(mv.netCfg.Beacon.EstimatedSlotAtTime(receivedAt.Unix())).
 		Sub(deadline)
+}
+
+func (mv *messageValidator) allowedSlots(role spectypes.BeaconRole) phase0.Slot {
+	switch role {
+	case spectypes.BNRoleProposer, spectypes.BNRoleSyncCommittee, spectypes.BNRoleSyncCommitteeContribution:
+		return 1
+	case spectypes.BNRoleAttester, spectypes.BNRoleAggregator:
+		return phase0.Slot(mv.netCfg.Beacon.SlotsPerEpoch())
+	default:
+		return 0
+	}
 }
 
 func (mv *messageValidator) consensusState(messageID spectypes.MessageID) *ConsensusState {
