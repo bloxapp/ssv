@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
+	spectypes "github.com/bloxapp/ssv-spec/types"
 	"github.com/golang/mock/gomock"
 
-	"github.com/bloxapp/ssv/networkconfig"
 	mocknetwork "github.com/bloxapp/ssv/protocol/v2/blockchain/beacon/mocks"
 )
 
@@ -38,7 +38,6 @@ func SetupMockBeaconNetwork(t *testing.T, currentSlot *SlotValue) *mocknetwork.M
 	}
 
 	mockBeaconNetwork := mocknetwork.NewMockBeaconNetwork(ctrl)
-	mockBeaconNetwork.EXPECT().GetBeaconNetwork().Return(networkconfig.TestNetwork.Beacon.GetBeaconNetwork()).AnyTimes()
 
 	mockBeaconNetwork.EXPECT().EstimatedCurrentSlot().DoAndReturn(
 		func() phase0.Slot {
@@ -50,6 +49,13 @@ func SetupMockBeaconNetwork(t *testing.T, currentSlot *SlotValue) *mocknetwork.M
 			return phase0.Epoch(slot / 32)
 		},
 	).AnyTimes()
+	mockBeaconNetwork.EXPECT().EstimatedSlotAtTime(gomock.Any()).DoAndReturn(
+		func(time int64) phase0.Slot {
+			return spectypes.PraterNetwork.EstimatedSlotAtTime(time)
+		},
+	).AnyTimes()
+
+	mockBeaconNetwork.EXPECT().String().Return(string(spectypes.PraterNetwork)).AnyTimes()
 
 	return mockBeaconNetwork
 }

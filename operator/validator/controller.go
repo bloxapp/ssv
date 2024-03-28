@@ -204,7 +204,7 @@ func NewController(logger *zap.Logger, options ControllerOptions) Controller {
 	validatorOptions := validator.Options{ //TODO add vars
 		Network:       options.Network,
 		Beacon:        options.Beacon,
-		BeaconNetwork: options.BeaconNetwork.GetNetwork(),
+		BeaconNetwork: options.BeaconNetwork,
 		Storage:       options.StorageMap,
 		//Share:   nil,  // set per validator
 		Signer: options.KeyManager,

@@ -15,13 +15,10 @@ import (
 	"github.com/bloxapp/ssv/network"
 
 	spectypes "github.com/bloxapp/ssv-spec/types"
-	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ilyakaznacheev/cleanenv"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
-
-	p2pv1 "github.com/bloxapp/ssv/network/p2p"
 
 	"github.com/bloxapp/ssv/api/handlers"
 	apiserver "github.com/bloxapp/ssv/api/server"
@@ -43,6 +40,7 @@ import (
 	"github.com/bloxapp/ssv/migrations"
 	"github.com/bloxapp/ssv/monitoring/metrics"
 	"github.com/bloxapp/ssv/monitoring/metricsreporter"
+	p2pv1 "github.com/bloxapp/ssv/network/p2p"
 	"github.com/bloxapp/ssv/networkconfig"
 	"github.com/bloxapp/ssv/nodeprobe"
 	"github.com/bloxapp/ssv/operator"
@@ -114,6 +112,7 @@ var StartNodeCmd = &cobra.Command{
 		if err != nil {
 			logger.Fatal("could not setup network", zap.Error(err))
 		}
+
 		cfg.DBOptions.Ctx = cmd.Context()
 		db, err := setupDB(logger, networkConfig.Beacon.GetNetwork())
 		if err != nil {
@@ -143,7 +142,7 @@ var StartNodeCmd = &cobra.Command{
 
 		slotTickerProvider := func() slotticker.SlotTicker {
 			return slotticker.New(logger, slotticker.Config{
-				SlotDuration: networkConfig.SlotDurationSec(),
+				SlotDuration: networkConfig.SlotDuration(),
 				GenesisTime:  networkConfig.GetGenesisTime(),
 			})
 		}
@@ -163,7 +162,7 @@ var StartNodeCmd = &cobra.Command{
 		executionClient, err := executionclient.New(
 			cmd.Context(),
 			cfg.ExecutionClient.Addr,
-			ethcommon.HexToAddress(networkConfig.RegistryContractAddr),
+			networkConfig.RegistryContractAddr,
 			executionclient.WithLogger(logger),
 			executionclient.WithMetrics(metricsReporter),
 			executionclient.WithFollowDistance(executionclient.DefaultFollowDistance),
@@ -505,9 +504,26 @@ func decodePrivateKey(key string) (*rsa.PrivateKey, error) {
 }
 
 func setupSSVNetwork(logger *zap.Logger) (networkconfig.NetworkConfig, error) {
-	networkConfig, err := networkconfig.GetNetworkConfigByName(cfg.SSVOptions.NetworkName)
-	if err != nil {
-		return networkconfig.NetworkConfig{}, err
+	var networkConfig networkconfig.NetworkConfig
+
+	if cfg.SSVOptions.NetworkName == "" && cfg.SSVOptions.CustomNetwork == nil {
+		return networkConfig, fmt.Errorf("both network name and custom config were NOT found in config, only one is required")
+	}
+
+	if cfg.SSVOptions.NetworkName != "" && cfg.SSVOptions.CustomNetwork != nil {
+		return networkConfig, fmt.Errorf("both network name and custom config were found in config, only one is required")
+	}
+
+	if cfg.SSVOptions.NetworkName != "" {
+		nc, err := networkconfig.GetNetworkConfigByName(cfg.SSVOptions.NetworkName)
+		if err != nil {
+			return networkConfig, err
+		}
+
+		networkConfig = nc
+	} else {
+		logger.Info("network name not found in config, using custom network from config")
+		networkConfig = *cfg.SSVOptions.CustomNetwork
 	}
 
 	types.SetDefaultDomain(networkConfig.Domain)
@@ -526,9 +542,9 @@ func setupSSVNetwork(logger *zap.Logger) (networkconfig.NetworkConfig, error) {
 		fields.Domain(networkConfig.Domain),
 		zap.String("nodeType", nodeType),
 		zap.String("builderProposals(MEV)", builderProposals),
-		zap.Any("beaconNetwork", networkConfig.Beacon.GetNetwork().BeaconNetwork),
+		zap.Any("beaconNetwork", networkConfig.Beacon.String()),
 		zap.Uint64("genesisEpoch", uint64(networkConfig.GenesisEpoch)),
-		zap.String("registryContract", networkConfig.RegistryContractAddr),
+		zap.String("registryContract", networkConfig.RegistryContractAddr.String()),
 	)
 
 	return networkConfig, nil
