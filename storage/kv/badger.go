@@ -3,6 +3,7 @@ package kv
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -14,6 +15,10 @@ import (
 
 	"github.com/bloxapp/ssv/logging"
 	"github.com/bloxapp/ssv/storage/basedb"
+)
+
+const (
+	DBTypePrefix = "ssv-db-type"
 )
 
 // BadgerDB struct
@@ -31,19 +36,20 @@ type BadgerDB struct {
 }
 
 // New creates a persistent DB instance.
-func New(logger *zap.Logger, options basedb.Options) (*BadgerDB, error) {
-	return createDB(logger, options, false)
+func New(ctx context.Context, logger *zap.Logger, options basedb.Options) (*BadgerDB, error) {
+	return createDB(ctx, logger, options, false)
 }
 
 // NewInMemory creates an in-memory DB instance.
-func NewInMemory(logger *zap.Logger, options basedb.Options) (*BadgerDB, error) {
-	return createDB(logger, options, true)
+func NewInMemory(ctx context.Context, logger *zap.Logger, options basedb.Options) (*BadgerDB, error) {
+	return createDB(ctx, logger, options, true)
 }
 
-func createDB(logger *zap.Logger, options basedb.Options, inMemory bool) (*BadgerDB, error) {
+func createDB(ctx context.Context, logger *zap.Logger, options basedb.Options, inMemory bool) (*BadgerDB, error) {
 	// Open the Badger database located in the /tmp/badger directory.
 	// It will be created if it doesn't exist.
 	opt := badger.DefaultOptions(options.Path)
+	opt.SyncWrites = options.SyncWrites
 
 	if inMemory {
 		opt.InMemory = true
@@ -66,21 +72,17 @@ func createDB(logger *zap.Logger, options basedb.Options, inMemory bool) (*Badge
 	}
 
 	// Set up context/cancel to control background goroutines.
-	parentCtx := options.Ctx
-	if parentCtx == nil {
-		parentCtx = context.Background()
-	}
-	ctx, cancel := context.WithCancel(parentCtx)
+	ctxWithCancel, cancel := context.WithCancel(ctx)
 
 	badgerDB := BadgerDB{
 		logger: logger,
 		db:     db,
-		ctx:    ctx,
+		ctx:    ctxWithCancel,
 		cancel: cancel,
 	}
 
 	// Start periodic reporting.
-	if options.Reporting && options.Ctx != nil {
+	if options.Reporting {
 		badgerDB.wg.Add(1)
 		go badgerDB.periodicallyReport(1 * time.Minute)
 	}
@@ -339,4 +341,35 @@ func (b *BadgerDB) UsingReader(r basedb.Reader) basedb.Reader {
 		return b
 	}
 	return r
+}
+
+func (b *BadgerDB) IsEmpty() (bool, error) {
+	var isEmpty = true // Assume empty until proven otherwise
+	err := b.db.View(func(txn *badger.Txn) error {
+		it := txn.NewIterator(badger.DefaultIteratorOptions)
+		defer it.Close()
+		if it.Rewind(); it.Valid() {
+			isEmpty = false // Found a key, so database is not empty
+			return nil      // Exit the transaction early since we found a key
+		}
+		return nil
+	})
+	return isEmpty, err
+}
+
+func (b *BadgerDB) GetType() (string, bool, error) {
+	item, found, err := b.Get([]byte{}, []byte(DBTypePrefix))
+	if err != nil {
+		return "", false, fmt.Errorf("failed to get db type: %w", err)
+	}
+
+	return string(item.Value), found, nil
+}
+
+func (b *BadgerDB) SetType(dbType string) error {
+	if err := b.Set([]byte{}, []byte(DBTypePrefix), []byte(dbType)); err != nil {
+		return fmt.Errorf("failed to set db type: %w", err)
+	}
+
+	return nil
 }

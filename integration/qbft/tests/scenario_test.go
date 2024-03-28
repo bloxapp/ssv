@@ -154,8 +154,8 @@ func quorum(committee int) int {
 	return (committee*2 + 1) / 3 // committee = 3f+1; quorum = 2f+1
 }
 
-func newStores(logger *zap.Logger) *qbftstorage.QBFTStores {
-	db, err := kv.NewInMemory(logger, basedb.Options{})
+func newStores(ctx context.Context, logger *zap.Logger) *qbftstorage.QBFTStores {
+	db, err := kv.NewInMemory(ctx, logger, basedb.Options{})
 	if err != nil {
 		panic(err)
 	}
@@ -189,7 +189,7 @@ func createValidator(t *testing.T, pCtx context.Context, id spectypes.OperatorID
 	require.NoError(t, err)
 
 	options := protocolvalidator.Options{
-		Storage:       newStores(logger),
+		Storage:       newStores(ctx, logger),
 		Network:       node,
 		BeaconNetwork: networkconfig.TestNetwork.Beacon,
 		SSVShare: &types.SSVShare{

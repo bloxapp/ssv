@@ -1112,7 +1112,7 @@ func setupTestValidator(ownerAddressBytes, feeRecipientBytes []byte) *validator.
 }
 
 func getBaseStorage(logger *zap.Logger) (basedb.Database, error) {
-	return kv.NewInMemory(logger, basedb.Options{})
+	return kv.NewInMemory(context.Background(), logger, basedb.Options{})
 }
 
 func decodeHex(t *testing.T, hexStr string, errMsg string) []byte {
@@ -1160,7 +1160,11 @@ func setupCommonTestComponents(t *testing.T) (*gomock.Controller, *zap.Logger, *
 
 	db, err := getBaseStorage(logger)
 	require.NoError(t, err)
-	km, err := ekm.NewETHKeyManagerSigner(logger, db, networkconfig.TestNetwork, true, "")
+
+	spDB, err := getBaseStorage(logger)
+	require.NoError(t, err)
+
+	km, err := ekm.NewETHKeyManagerSigner(logger, db, spDB, networkconfig.TestNetwork, true, "")
 	require.NoError(t, err)
 	return ctrl, logger, sharesStorage, network, km, recipientStorage, bc
 }

@@ -13,7 +13,6 @@ import (
 	"github.com/bloxapp/ssv/ekm"
 	operatorstorage "github.com/bloxapp/ssv/operator/storage"
 	"github.com/bloxapp/ssv/protocol/v2/blockchain/beacon"
-	"github.com/bloxapp/ssv/protocol/v2/blockchain/eth1"
 	"github.com/bloxapp/ssv/storage/basedb"
 )
 
@@ -26,8 +25,15 @@ var (
 		migration_1_example,
 		migration_2_encrypt_shares,
 		migration_3_drop_registry_data,
+		migration_4_standalone_slashing_data,
 	}
 )
+
+type OperatorKeyConfig struct {
+	PrivateKeyFile          string
+	PasswordFile            string
+	Base64EncodedPrivateKey string
+}
 
 // Run executes the default migrations.
 func Run(ctx context.Context, logger *zap.Logger, opt Options) (applied int, err error) {
@@ -52,29 +58,27 @@ type Migrations []Migration
 
 // Options is the options for running migrations.
 type Options struct {
-	Db          basedb.Database
-	NodeStorage operatorstorage.Storage
-	DbPath      string
-	Network     beacon.Network
+	Db                basedb.Database
+	SpDb              basedb.Database
+	Network           beacon.BeaconNetwork
+	OperatorKeyConfig OperatorKeyConfig
 }
 
-// nolint
-func (o Options) getRegistryStores(logger *zap.Logger) ([]eth1.RegistryStore, error) {
-	nodeStorage, err := o.nodeStorage(logger)
-	if err != nil {
-		return nil, err
-	}
-	return []eth1.RegistryStore{nodeStorage, o.signerStorage(logger)}, nil
-}
-
-// nolint
 func (o Options) nodeStorage(logger *zap.Logger) (operatorstorage.Storage, error) {
 	return operatorstorage.NewNodeStorage(logger, o.Db)
 }
 
-// nolint
-func (o Options) signerStorage(logger *zap.Logger) ekm.Storage {
-	return ekm.NewSignerStorage(o.Db, o.Network, logger)
+func (o Options) signerStorage(logger *zap.Logger) ekm.SignerStorage {
+	network := o.Network.GetBeaconNetwork()
+	return ekm.NewSignerStorage(o.Db, logger, network, []byte(network))
+}
+
+func (o Options) legacySlashingProtectionStorage(logger *zap.Logger) ekm.SPStorage {
+	return ekm.NewSlashingProtectionStorage(o.Db, logger, []byte(o.Network.GetBeaconNetwork()))
+}
+
+func (o Options) slashingProtectionStorage(logger *zap.Logger) ekm.SPStorage {
+	return ekm.NewSlashingProtectionStorage(o.SpDb, logger, []byte(o.Network.GetBeaconNetwork()))
 }
 
 // Run executes the migrations.

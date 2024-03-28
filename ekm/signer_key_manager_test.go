@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/hex"
+	"fmt"
 	"testing"
 
 	"github.com/attestantio/go-eth2-client/spec/altair"
@@ -44,6 +45,9 @@ func testKeyManager(t *testing.T, network *networkconfig.NetworkConfig) spectype
 	db, err := getBaseStorage(logger)
 	require.NoError(t, err)
 
+	spDB, err := getBaseStorage(logger)
+	require.NoError(t, err)
+
 	if network == nil {
 		network = &networkconfig.NetworkConfig{
 			Beacon: utils.SetupMockBeaconNetwork(t, nil),
@@ -51,7 +55,7 @@ func testKeyManager(t *testing.T, network *networkconfig.NetworkConfig) spectype
 		}
 	}
 
-	km, err := NewETHKeyManagerSigner(logger, db, *network, true, "")
+	km, err := NewETHKeyManagerSigner(logger, db, spDB, *network, true, "")
 	require.NoError(t, err)
 
 	sk1 := &bls.SecretKey{}
@@ -82,7 +86,11 @@ func TestEncryptedKeyManager(t *testing.T) {
 	logger := logging.TestLogger(t)
 	db, err := getBaseStorage(logger)
 	require.NoError(t, err)
-	signerStorage := NewSignerStorage(db, networkconfig.TestNetwork.Beacon.GetNetwork(), logger)
+
+	spDB, err := getBaseStorage(logger)
+	require.NoError(t, err)
+
+	signerStorage := NewEKMStorage(db, spDB, networkconfig.TestNetwork.Beacon.GetBeaconNetwork(), logger)
 	err = signerStorage.SetEncryptionKey(encryptionKey)
 	require.NoError(t, err)
 	defer func(db basedb.Database, logger *zap.Logger) {
@@ -133,8 +141,8 @@ func TestSlashing(t *testing.T) {
 	require.NoError(t, sk1.SetHexString(sk1Str))
 	require.NoError(t, km.AddShare(sk1))
 
-	currentSlot := km.(*ethKeyManagerSigner).storage.Network().EstimatedCurrentSlot()
-	currentEpoch := km.(*ethKeyManagerSigner).storage.Network().EstimatedEpochAtSlot(currentSlot)
+	currentSlot := km.(*ethKeyManagerSigner).network.EstimatedCurrentSlot()
+	currentEpoch := km.(*ethKeyManagerSigner).network.EstimatedEpochAtSlot(currentSlot)
 
 	highestTarget := currentEpoch + minSPAttestationEpochGap + 1
 	highestSource := highestTarget - 1
@@ -450,4 +458,63 @@ func TestSignRoot(t *testing.T) {
 		require.NoError(t, err)
 		// require.True(t, res)
 	})
+}
+
+func TestMatchSlashingProtectionData(t *testing.T) {
+	threshold.Init()
+
+	logger := logging.TestLogger(t)
+
+	db, err := getBaseStorage(logger)
+	require.NoError(t, err)
+
+	spDB, err := getBaseStorage(logger)
+	require.NoError(t, err)
+
+	network := &networkconfig.NetworkConfig{
+		Beacon: utils.SetupMockBeaconNetwork(t, nil),
+		Domain: networkconfig.TestNetwork.Domain,
+	}
+
+	km, err := NewETHKeyManagerSigner(logger, db, spDB, *network, true, "")
+	require.NoError(t, err)
+	ekm := km.(*ethKeyManagerSigner)
+
+	spStoreI := NewSlashingProtectionStorage(spDB, logger, []byte(network.Beacon.GetBeaconNetwork()))
+	spStore := spStoreI.(*spStorage)
+
+	sk1 := &bls.SecretKey{}
+	require.NoError(t, sk1.SetHexString(sk1Str))
+	require.NoError(t, km.AddShare(sk1))
+
+	// Test case 1: successful match
+	require.NoError(t, ekm.MatchSlashingProtectionData())
+
+	// Test case 2: highest attestation not found
+	require.NoError(t, ekm.storage.RemoveHighestAttestation(sk1.GetPublicKey().Serialize()))
+	err = ekm.MatchSlashingProtectionData()
+	require.Error(t, err, "highest attestation for account account1 not found")
+	require.Equal(t, fmt.Sprintf("highest attestation for account %s not found", sk1.GetPublicKey().SerializeToHexStr()), err.Error())
+
+	// Test case 3: highest attestation is nil
+	require.NoError(t, spStore.db.Set(spStore.objPrefix(highestAttPrefix), sk1.GetPublicKey().Serialize(), nil))
+	err = ekm.MatchSlashingProtectionData()
+	require.Error(t, err, "highest attestation for account account1 nil")
+	require.Equal(t, "could not retrieve highest attestation: highest attestation value is empty", err.Error())
+
+	// prepare data
+	require.NoError(t, ekm.storage.RemoveHighestAttestation(sk1.GetPublicKey().Serialize()))
+	require.NoError(t, ekm.storage.SaveHighestAttestation(sk1.GetPublicKey().Serialize(), &phase0.AttestationData{}))
+
+	// Test case 4: highest proposal not found
+	require.NoError(t, ekm.storage.RemoveHighestProposal(sk1.GetPublicKey().Serialize()))
+	err = ekm.MatchSlashingProtectionData()
+	require.Error(t, err, "highest proposal for account account1 not found")
+	require.Equal(t, fmt.Sprintf("highest proposal for account %s not found", sk1.GetPublicKey().SerializeToHexStr()), err.Error())
+
+	// Test case 5: highest proposal is 0
+	require.NoError(t, spStore.db.Set(spStore.objPrefix(highestProposalPrefix), sk1.GetPublicKey().Serialize(), nil))
+	err = ekm.MatchSlashingProtectionData()
+	require.Error(t, err, "highest proposal for account account1 is 0")
+	require.Equal(t, "could not retrieve highest proposal: highest proposal value is empty", err.Error())
 }
