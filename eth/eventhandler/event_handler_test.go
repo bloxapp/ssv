@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	ekmcore "github.com/bloxapp/eth2-key-manager/core"
@@ -1261,6 +1262,17 @@ func TestHandleBlockEventsStream(t *testing.T) {
 			require.False(t, share.Liquidated)
 		})
 	})
+
+	// Cancel StreamLogs context.
+	cancel()
+
+	// Wait for the stream to be closed.
+	select {
+	case _, ok := <-logs:
+		require.False(t, ok, "logs channel should be closed")
+	case <-time.After(time.Second):
+		require.Fail(t, "logs channel should be closed")
+	}
 }
 
 func setupEventHandler(t *testing.T, ctx context.Context, logger *zap.Logger, network *networkconfig.NetworkConfig, operator *testOperator, useMockCtrl bool) (*EventHandler, *mocks.MockController, error) {
