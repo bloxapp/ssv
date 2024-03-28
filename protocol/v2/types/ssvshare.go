@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	MaxPossibleShareSize = 1245
-	MaxAllowedShareSize  = MaxPossibleShareSize * 8 // Leaving some room for protocol updates and calculation mistakes.
+	MaxPossibleShareSize = 1265
+	MaxAllowedShareSize  = 1245 * 8 // Leaving some room for protocol updates and calculation mistakes. 1245 - initial share max size
 )
 
 // SSVShare is a combination of spectypes.Share and its Metadata.
@@ -107,4 +107,5 @@ type Metadata struct {
 	BeaconMetadata *beaconprotocol.ValidatorMetadata
 	OwnerAddress   common.Address
 	Liquidated     bool
+	InvalidSecret  bool
 }

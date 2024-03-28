@@ -199,6 +199,13 @@ func ByNotLiquidated() SharesFilter {
 	}
 }
 
+// ByValidSecret filters for not invalid secret.
+func ByValidSecret() SharesFilter {
+	return func(share *types.SSVShare) bool {
+		return !share.InvalidSecret
+	}
+}
+
 // ByActiveValidator filters for active validators.
 func ByActiveValidator() SharesFilter {
 	return func(share *types.SSVShare) bool {
