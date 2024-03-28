@@ -64,16 +64,14 @@ func (n *p2pNetwork) Broadcast(msg *spectypes.SSVMessage) error {
 		return errors.Wrap(err, "could not decode msg")
 	}
 
-	if n.cfg.Network.Beacon.EstimatedCurrentEpoch() > n.cfg.Network.PermissionlessActivationEpoch {
-		hash := sha256.Sum256(encodedMsg)
+	hash := sha256.Sum256(encodedMsg)
 
-		signature, err := rsa.SignPKCS1v15(nil, n.operatorPrivateKey, crypto.SHA256, hash[:])
-		if err != nil {
-			return err
-		}
-
-		encodedMsg = commons.EncodeSignedSSVMessage(encodedMsg, n.getOperatorID(), signature)
+	signature, err := rsa.SignPKCS1v15(nil, n.operatorPrivateKey, crypto.SHA256, hash[:])
+	if err != nil {
+		return err
 	}
+
+	encodedMsg = commons.EncodeSignedSSVMessage(encodedMsg, n.getOperatorID(), signature)
 
 	vpk := msg.GetID().GetPubKey()
 	topics := commons.ValidatorTopicID(vpk)

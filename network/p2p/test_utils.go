@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	spectypes "github.com/bloxapp/ssv-spec/types"
+
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -173,6 +175,11 @@ func (ln *LocalNet) NewTestP2pNetwork(ctx context.Context, nodeIndex int, keys t
 
 	mr := metricsreporter.New()
 	p := New(logger, cfg, mr)
+
+	p.(*p2pNetwork).getOperatorID = func() spectypes.OperatorID {
+		return spectypes.OperatorID(nodeIndex)
+	}
+
 	err = p.Setup(logger)
 	if err != nil {
 		return nil, err
@@ -242,8 +249,5 @@ func NewNetConfig(keys testing.NodeKeys, operatorPubKeyHash string, bn *discover
 		OperatorPubKeyHash: operatorPubKeyHash,
 		UserAgent:          ua,
 		Discovery:          discT,
-		Permissioned: func() bool {
-			return false
-		},
 	}
 }

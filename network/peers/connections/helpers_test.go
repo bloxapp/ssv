@@ -34,8 +34,7 @@ type TestData struct {
 	Handshaker handshaker
 	Conn       mock.Conn
 
-	NodeInfo       *records.NodeInfo
-	SignedNodeInfo *records.SignedNodeInfo
+	NodeInfo *records.NodeInfo
 }
 
 func getTestingData(t *testing.T) TestData {
@@ -74,12 +73,6 @@ func getTestingData(t *testing.T) TestData {
 	signature, err := rsa.SignPKCS1v15(nil, senderPrivateKey, crypto.SHA256, hashedHandshakeData)
 	require.NoError(t, err)
 
-	sni := &records.SignedNodeInfo{
-		NodeInfo:      nodeInfo,
-		HandshakeData: handshakeData,
-		Signature:     signature,
-	}
-
 	nii := mock.NodeInfoIndex{
 		MockNodeInfo:   nil,
 		MockSelfSealed: []byte("something"),
@@ -115,15 +108,14 @@ func getTestingData(t *testing.T) TestData {
 	}
 
 	mockHandshaker := handshaker{
-		ctx:          context.Background(),
-		nodeInfos:    nii,
-		peerInfos:    ns,
-		ids:          ids,
-		net:          net,
-		nodeStorage:  nst,
-		streams:      sc,
-		filters:      func() []HandshakeFilter { return []HandshakeFilter{} },
-		Permissioned: func() bool { return false },
+		ctx:         context.Background(),
+		nodeInfos:   nii,
+		peerInfos:   ns,
+		ids:         ids,
+		net:         net,
+		nodeStorage: nst,
+		streams:     sc,
+		filters:     func() []HandshakeFilter { return []HandshakeFilter{} },
 	}
 
 	mockConn := mock.Conn{
@@ -143,6 +135,5 @@ func getTestingData(t *testing.T) TestData {
 		Conn:                     mockConn,
 		NetworkPrivateKey:        networkPrivateKey,
 		NodeInfo:                 nodeInfo,
-		SignedNodeInfo:           sni,
 	}
 }
