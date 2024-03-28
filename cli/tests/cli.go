@@ -1,21 +1,17 @@
-package cli
+package tests
 
 import (
 	"log"
 
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
-
-	"github.com/bloxapp/ssv/cli/bootnode"
-	"github.com/bloxapp/ssv/cli/operator"
-	"github.com/bloxapp/ssv/cli/tests"
 )
 
 // RootCmd represents the root command of SSV CLI
 var RootCmd = &cobra.Command{
-	Use:   "ssvnode",
-	Short: "ssv-node",
-	Long:  `SSV node is a CLI for running SSV-related operations.`,
+	Use:   "ssvnodetests",
+	Short: "ssv-node-test",
+	Long:  `SSV node test is a CLI for running SSV-related operations of testing.`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 	},
 }
@@ -31,8 +27,5 @@ func Execute(appName, version string) {
 }
 
 func init() {
-	RootCmd.AddCommand(operator.StartNodeCmd)
-	RootCmd.AddCommand(operator.GenerateDocCmd)
-	RootCmd.AddCommand(bootnode.StartBootNodeCmd)
-	RootCmd.AddCommand(tests.RsaCmd)
+	RootCmd.AddCommand(RsaCmd)
 }
