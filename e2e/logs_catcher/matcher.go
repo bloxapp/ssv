@@ -2,118 +2,260 @@ package logs_catcher
 
 import (
 	"context"
-	"fmt"
-	"time"
-
+	"encoding/json"
 	"errors"
+	"fmt"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/client"
 	"go.uber.org/zap"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/bloxapp/ssv/e2e/logs_catcher/docker"
 	"github.com/bloxapp/ssv/e2e/logs_catcher/logs"
 )
 
-// Test conditions:
+const beaconProxyContainer = "beacon_proxy"
 
-const waitTarget = "beacon_proxy"
-const firstTarget = "beacon_proxy"
+var ssvNodesContainers = []string{"ssv-node-1", "ssv-node-2", "ssv-node-3", "ssv-node-4"}
 
-var secondTargets = []string{"ssv-node-1", "ssv-node-2", "ssv-node-3", "ssv-node-4"}
-
-const waitFor = "End epoch finished"
-
-// For each in target #1
-const origMessage = "set up validator"
-const slashableMessage = "\"attester_slashable\":true"
-const nonSlashableMessage = "\"attester_slashable\":false"
-
-// Take field
-const idField = "pubkey"
-
-// and find in target #2
-const slashableMatchMessage = "slashable attestation"
-const nonSlashableMatchMessage = "successfully submitted attestation"
-
-func StartCondition(pctx context.Context, logger *zap.Logger, condition []string, targetContainer string, cli DockerCLI) (string, error) {
-	ctx, cancel := context.WithCancel(pctx)
-	defer cancel()
-
-	conditionLog := ""
-
-	logger.Debug("Waiting for start condition at target", zap.String("target", targetContainer), zap.Strings("condition", condition))
-	ch := make(chan string, 1024)
-	go func() {
-		for log := range ch {
-			if logs.GrepLine(log, condition) {
-				conditionLog = log
-				logger.Info("Start condition arrived", zap.Strings("log_message", condition))
-				cancel()
-			}
-		}
-	}()
-	// TODO: either apply logs collection on each container or fan in the containers to one log stream
-	err := docker.StreamDockerLogs(ctx, cli, targetContainer, ch)
-	if err != nil && !errors.Is(err, context.Canceled) {
-		logger.Error("Log streaming stopped with err ", zap.Error(err))
-		return conditionLog, err
-	}
-	return conditionLog, nil
+type Matcher struct {
+	mode   SubMode
+	logger *zap.Logger
+	cli    *client.Client
 }
 
-// Todo: match messages based on fields. ex: take all X messages from target one,
-// 	extract pubkey field and get all matching messages with this pubkey field on target two.
+func NewLogMatcher(logger *zap.Logger, cli *client.Client, mode SubMode) *Matcher {
+	return &Matcher{mode: mode, cli: cli, logger: logger}
+}
 
-func matchMessages(ctx context.Context, logger *zap.Logger, cli DockerCLI, first []string, second []string, plus int) error {
-	res, err := docker.DockerLogs(ctx, cli, firstTarget, "")
+// Match starts log catching based on the Matcher mode
+func (m *Matcher) Match(pctx context.Context) error {
+	ctx, cancel := context.WithTimeout(pctx, 24*time.Minute) // 24 minutes for 4 epochs
+	defer cancel()
+
+	if _, err := m.waitForStartCondition(ctx, []string{waitFor}, beaconProxyContainer); err != nil {
+		return err
+	}
+	return m.testDuty(ctx)
+}
+
+// TestRestartNode waits until first successfully attestation then restart the nodes and look for miss attestation
+func (m *Matcher) TestRestartNode(pctx context.Context) error {
+	ctx, c := context.WithCancel(pctx)
+	defer c()
+
+	_, err := m.waitForStartCondition(ctx, []string{reconstructSignaturesSuccess}, ssvNodesContainers[0])
+	if err != nil {
+		return err
+	}
+	_, cancel := context.WithCancel(pctx)
+	defer cancel()
+
+	for _, ssvNode := range ssvNodesContainers {
+		err := m.restartContainer(ssvNode)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Matcher) restartContainer(containerName string) error {
+	// Context with a timeout to avoid hanging restarts
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Restart the container
+	err := m.cli.ContainerRestart(ctx, containerName, container.StopOptions{})
+	if err != nil {
+		return fmt.Errorf("error restarting container %s: %w", containerName, err)
+	}
+
+	fmt.Printf("Successfully restarted container %s\n", containerName)
+	return nil
+}
+
+func (m *Matcher) testDuty(ctx context.Context) error {
+	switch m.mode {
+	case NonSlashable, Slashable:
+		return m.validateAttestationLogs(ctx)
+	case RsaVerification:
+		return m.validateRSAVerificationLogs(ctx)
+	default:
+		return fmt.Errorf("unknown mode: %s", m.mode)
+	}
+}
+
+func (m *Matcher) validateAttestationLogs(ctx context.Context) error {
+	beaconCriteria, nodeCriteria, discrepancyCheck := m.getModeCriteria()
+
+	// Extract and organize logs from the beacon proxy container
+	beaconLogsByPublicKey, err := m.logsByPublicKey(ctx, beaconProxyContainer, beaconCriteria)
 	if err != nil {
 		return err
 	}
 
-	grepped := res.Grep(first)
-
-	logger.Info("matched", zap.Int("count", len(grepped)), zap.String("target", firstTarget), zap.Strings("match_string", first))
-
-	for _, target := range secondTargets {
-		logger.Debug("Reading one of second targets logs", zap.String("target", target))
-
-		tres, err := docker.DockerLogs(ctx, cli, target, "")
+	// Verify and compare logs in SSV node containers
+	for _, nodeContainer := range ssvNodesContainers {
+		nodeLogsByPublicKey, err := m.logsByPublicKey(ctx, nodeContainer, nodeCriteria)
 		if err != nil {
 			return err
 		}
 
-		tgrepped := tres.Grep(second)
-
-		if len(tgrepped) != len(grepped)+plus {
-			return fmt.Errorf("found non matching messages on %v, want %v got %v", target, len(grepped), len(tgrepped))
+		for validatorPubKey, beaconLogs := range beaconLogsByPublicKey {
+			nodeLogs, exists := nodeLogsByPublicKey[validatorPubKey]
+			if !exists || discrepancyCheck(beaconLogs, nodeLogs) {
+				m.logger.Info("Discrepancy found", zap.String("PublicKey", validatorPubKey), zap.Int("BeaconCount", len(beaconLogs)), zap.Int("NodeCount", len(nodeLogs)))
+				return fmt.Errorf("discrepancy for pubkey %s in %s: expected %d, got %d", validatorPubKey, nodeContainer, len(beaconLogs), len(nodeLogs))
+			}
 		}
-
-		logger.Debug("found matching messages for target", zap.Strings("first", first), zap.Strings("second", second), zap.Int("count", len(tgrepped)), zap.String("target", target))
 	}
-
 	return nil
 }
 
-func Match(pctx context.Context, logger *zap.Logger, cli DockerCLI) error {
-	startctx, startc := context.WithTimeout(pctx, time.Minute*6*4) // wait max 4 epochs
-	_, err := StartCondition(startctx, logger, []string{waitFor}, waitTarget, cli)
-	if err != nil {
-		startc() // Cancel the startctx context
-		return err
+func (m *Matcher) validateRSAVerificationLogs(ctx context.Context) error {
+	nodeCriteria := []string{rsaVerificationErrorMessage}
+	opidRegex := regexp.MustCompile(`opid: (\d+)`)
+
+	for _, nodeContainer := range ssvNodesContainers {
+		nodeLogs, err := m.processDockerLogs(ctx, nodeContainer, nodeCriteria)
+		if err != nil {
+			return err
+		}
+		if err := m.validateOpids(nodeLogs, opidRegex, nodeContainer); err != nil {
+			return err
+		}
 	}
-	startc()
-
-	ctx, c := context.WithCancel(pctx)
-	defer c()
-
-	// find slashable attestation not signing for each slashable validator
-	if err := matchMessages(ctx, logger, cli, []string{origMessage, slashableMessage}, []string{slashableMatchMessage}, 0); err != nil {
-		return err
-	}
-
-	// find non-slashable validators successfully submitting (all first round + 1 for second round)
-	if err := matchMessages(ctx, logger, cli, []string{origMessage, nonSlashableMessage}, []string{nonSlashableMatchMessage}, 30); err != nil {
-		return err
-	}
-
-	//TODO: match proposals
 	return nil
+}
+
+func (m *Matcher) getModeCriteria() (beaconCriteria, nodeCriteria []string, discrepancyCheck func(beaconCount, nodeCount []any) bool) {
+	switch m.mode {
+	case NonSlashable:
+		beaconCriteria = []string{origMessage, nonSlashableMessage}
+		nodeCriteria = []string{nonSlashableMatchMessage}
+		discrepancyCheck = func(beaconCount, nodeCount []any) bool { return len(nodeCount) != 2 }
+	case Slashable:
+		beaconCriteria = []string{origMessage, slashableMessage}
+		nodeCriteria = []string{slashableMatchMessage}
+		discrepancyCheck = func(beaconCount, nodeCount []any) bool { return len(beaconCount) != len(nodeCount) }
+	}
+	return
+}
+
+func (m *Matcher) waitForStartCondition(ctx context.Context, condition []string, targetContainer string) (string, error) {
+	ch := make(chan string, 1024)
+	found := make(chan bool)
+
+	m.logger.Debug("Waiting for start condition", zap.String("target", targetContainer), zap.Strings("condition", condition))
+
+	var conditionLog string
+	go func() {
+		for log := range ch {
+			if logs.GrepLine(log, condition) {
+				conditionLog = log
+				m.logger.Info("Start condition met", zap.String("log_message", log))
+				found <- true
+				return
+			}
+		}
+	}()
+
+	go func() {
+		if err := docker.StreamDockerLogs(ctx, m.cli, targetContainer, ch); err != nil && !errors.Is(err, context.Canceled) {
+			m.logger.Error("Log streaming error", zap.Error(err))
+		}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return conditionLog, ctx.Err()
+	case <-found:
+		return conditionLog, nil
+	}
+}
+
+func (m *Matcher) processDockerLogs(ctx context.Context, containerName string, matchStrings []string) (logs.Parsed, error) {
+	if matchStrings == nil {
+		return nil, nil // No matching strings provided
+	}
+
+	m.logger.Info("Processing Docker logs", zap.String("container", containerName), zap.Strings("criteria", matchStrings))
+	res, err := docker.DockerLogs(ctx, m.cli, containerName, "")
+	if err != nil {
+		return nil, err
+	}
+
+	grepped := res.Grep(matchStrings).ParseAll(func(log string) (map[string]any, error) {
+		var result logs.ParsedLine // Corrected to `any` to match the return type
+		err := json.Unmarshal([]byte(log), &result)
+		if err != nil {
+			return nil, err // Return an error if parsing fails
+		}
+		if pubkey, ok := result["pubkey"].(string); ok {
+			// Check if pubkey starts with "0x" and remove it if present
+			if strings.HasPrefix(pubkey, "0x") {
+				pubkey = strings.TrimPrefix(pubkey, "0x")
+			}
+			result["pubkey"] = pubkey
+		}
+		return result, nil // Return the parsed result if successful
+	})
+
+	return grepped, nil
+}
+
+func (m *Matcher) logsByPublicKey(ctx context.Context, containerName string, matchStrings []string) (map[string][]any, error) {
+	logss, err := m.processDockerLogs(ctx, containerName, matchStrings)
+	if err != nil {
+		return nil, err
+	}
+
+	publicKeyLogs := make(map[string][]any)
+	for _, log := range logss {
+		if pubkey, ok := log["pubkey"].(string); ok {
+			publicKeyLogs[pubkey] = append(publicKeyLogs[pubkey], log)
+		}
+	}
+
+	m.logger.Info("Logs organized by public key", zap.Int("count", len(publicKeyLogs)), zap.String("container", containerName))
+	return publicKeyLogs, nil
+}
+
+func processPubKey(logEntry map[string]any) {
+	if pubkey, ok := logEntry["pubkey"].(string); ok && strings.HasPrefix(pubkey, "0x") {
+		logEntry["pubkey"] = strings.TrimPrefix(pubkey, "0x")
+	}
+}
+
+func (m *Matcher) validateOpids(nodeLogs logs.Parsed, opidRegex *regexp.Regexp, nodeContainer string) error {
+	nodeOpids := make(map[int]bool)
+	for _, log := range nodeLogs {
+		if errorMsg, ok := log["error"].(string); ok {
+			matches := opidRegex.FindStringSubmatch(errorMsg)
+			if len(matches) < 2 {
+				continue // No opid found, skip this log
+			}
+			opid, err := strconv.Atoi(matches[1])
+			if err != nil || !validOpid(opid) {
+				continue // Invalid opid, skip this log
+			}
+			if nodeOpids[opid] {
+				return fmt.Errorf("duplicate opid %d in node %s", opid, nodeContainer)
+			}
+			nodeOpids[opid] = true
+		}
+	}
+	if len(nodeOpids) != 4 {
+		return fmt.Errorf("expected 4 unique opids in node %s, got %d", nodeContainer, len(nodeOpids))
+	}
+	return nil
+}
+
+func validOpid(opid int) bool {
+	return opid >= 1 && opid <= 4
 }

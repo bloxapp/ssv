@@ -2,7 +2,10 @@ package logs_catcher
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"github.com/docker/docker/client"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -22,12 +25,12 @@ import (
 const (
 	targetContainer = "ssv-node-1"
 
-	verifySignatureErr           = "failed processing consensus message: could not process msg: invalid signed message: msg signature invalid: failed to verify signature"
-	reconstructSignatureErr      = "could not reconstruct post consensus signature: could not reconstruct beacon sig: failed to verify reconstruct signature: could not reconstruct a valid signature"
-	pastRoundErr                 = "failed processing consensus message: could not process msg: invalid signed message: past round"
+	gotDutiesSuccess             = "🗂 got duties"
 	reconstructSignaturesSuccess = "reconstructed partial signatures"
 	submittedAttSuccess          = "✅ successfully submitted attestation"
-	gotDutiesSuccess             = "🗂 got duties"
+	pastRoundErr                 = "failed processing consensus message: could not process msg: invalid signed message: past round"
+	verifySignatureErr           = "failed processing consensus message: could not process msg: invalid signed message: msg signature invalid: failed to verify signature"
+	reconstructSignatureErr      = "could not reconstruct post consensus signature: could not reconstruct beacon sig: failed to verify reconstruct signature: could not reconstruct a valid signature"
 
 	msgHeightField        = "\"msg_height\":%d"
 	msgRoundField         = "\"msg_round\":%d"
@@ -39,6 +42,10 @@ const (
 	roleField             = "\"role\":\"%s\""
 	slotField             = "\"slot\":%d"
 )
+
+type BlsVerificationJSON struct {
+	CorruptedShares []*CorruptedShare `json:"bls_verification"`
+}
 
 type logCondition struct {
 	role             string
@@ -56,12 +63,13 @@ type CorruptedShare struct {
 	OperatorID      types.OperatorID `json:"operator_id"`
 }
 
-func VerifyBLSSignature(pctx context.Context, logger *zap.Logger, cli DockerCLI, share *CorruptedShare) error {
+func VerifyBLSSignature(pctx context.Context, logger *zap.Logger, cli *client.Client, share *CorruptedShare) error {
 	startctx, startc := context.WithTimeout(pctx, time.Second*12*35) // wait max 35 slots
 	defer startc()
 
 	validatorIndex := fmt.Sprintf("v%d", share.ValidatorIndex)
-	conditionLog, err := StartCondition(startctx, logger, []string{gotDutiesSuccess, validatorIndex}, targetContainer, cli)
+	matcher := NewLogMatcher(logger, cli, "")
+	conditionLog, err := matcher.waitForStartCondition(startctx, []string{gotDutiesSuccess, validatorIndex}, targetContainer)
 	if err != nil {
 		return fmt.Errorf("failed to start condition: %w", err)
 	}
@@ -81,7 +89,7 @@ func VerifyBLSSignature(pctx context.Context, logger *zap.Logger, cli DockerCLI,
 	leader := DetermineLeader(dutySlot, committee)
 	logger.Debug("Leader: ", zap.Uint64("leader", leader))
 
-	_, err = StartCondition(startctx, logger, []string{submittedAttSuccess, share.ValidatorPubKey}, targetContainer, cli)
+	_, err = matcher.waitForStartCondition(startctx, []string{submittedAttSuccess, share.ValidatorPubKey}, targetContainer)
 	if err != nil {
 		return fmt.Errorf("failed to start condition: %w", err)
 	}
@@ -90,6 +98,21 @@ func VerifyBLSSignature(pctx context.Context, logger *zap.Logger, cli DockerCLI,
 	defer c()
 
 	return ProcessLogs(ctx, logger, cli, committee, leader, dutyID, dutySlot, share.OperatorID)
+}
+
+// UnmarshalBlsVerificationJSON reads the JSON file and unmarshals it into []*CorruptedShare.
+func UnmarshalBlsVerificationJSON(filePath string) ([]*CorruptedShare, error) {
+	contents, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("error reading json file for BLS verification: %s, %w", filePath, err)
+	}
+
+	var blsVerificationJSON BlsVerificationJSON
+	if err = json.Unmarshal(contents, &blsVerificationJSON); err != nil {
+		return nil, fmt.Errorf("error parsing json file for BLS verification: %s, %w", filePath, err)
+	}
+
+	return blsVerificationJSON.CorruptedShares, nil
 }
 
 func ParseAndExtractDutyInfo(conditionLog string, corruptedValidatorIndex string) (string, phase0.Slot, error) {
