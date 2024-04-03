@@ -4,13 +4,12 @@ import (
 	"encoding/json"
 	"sync"
 
-	"github.com/bloxapp/ssv/logging/fields"
-
 	specqbft "github.com/bloxapp/ssv-spec/qbft"
 	spectypes "github.com/bloxapp/ssv-spec/types"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 
+	"github.com/bloxapp/ssv/logging/fields"
 	"github.com/bloxapp/ssv/protocol/v2/qbft"
 )
 
@@ -162,7 +161,11 @@ func (i *Instance) BaseMsgValidation(msg *specqbft.SignedMessage) error {
 		return errors.Wrap(err, "invalid signed message")
 	}
 
-	if msg.Message.Round < i.State.Round {
+	// If a node gets a commit quorum before round change and other nodes don't,
+	// then the other nodes wouldn't be able to get the commit quorum,
+	// unless we allow decided messages from previous round.
+	decided := msg.Message.MsgType == specqbft.CommitMsgType && i.State.Share.HasQuorum(len(msg.Signers))
+	if !decided && msg.Message.Round < i.State.Round {
 		return errors.New("past round")
 	}
 
