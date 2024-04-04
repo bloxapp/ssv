@@ -99,14 +99,18 @@ func (mv *messageValidator) validateConsensusMessage(
 		return consensusDescriptor, msgSlot, err
 	}
 
-	if mv.hasFullData(signedMsg) {
+	if mv.needFullDataHashCheck(signedMsg) {
+		if len(signedMsg.FullData) == 0 {
+			return consensusDescriptor, msgSlot, ErrEmptyFullData
+		}
+
 		hashedFullData, err := specqbft.HashDataRoot(signedMsg.FullData)
 		if err != nil {
 			return consensusDescriptor, msgSlot, fmt.Errorf("hash data root: %w", err)
 		}
 
 		if hashedFullData != signedMsg.Message.Root {
-			return consensusDescriptor, msgSlot, ErrInvalidHash
+			return consensusDescriptor, msgSlot, ErrInvalidFullDataHash
 		}
 	}
 
@@ -139,7 +143,7 @@ func (mv *messageValidator) validateConsensusMessage(
 			signerState.ResetRound(msgRound)
 		}
 
-		if mv.hasFullData(signedMsg) && signerState.ProposalData == nil {
+		if mv.needDifferentFullDataCheck(signedMsg) && signerState.ProposalData == nil {
 			signerState.ProposalData = signedMsg.FullData
 		}
 
@@ -246,7 +250,7 @@ func (mv *messageValidator) validateSignerBehaviorConsensus(
 	}
 
 	if msgSlot == signerState.Slot && msgRound == signerState.Round {
-		if mv.hasFullData(signedMsg) && signerState.ProposalData != nil && !bytes.Equal(signerState.ProposalData, signedMsg.FullData) {
+		if mv.needDifferentFullDataCheck(signedMsg) && signerState.ProposalData != nil && !bytes.Equal(signerState.ProposalData, signedMsg.FullData) {
 			return ErrDuplicatedProposalWithDifferentData
 		}
 
@@ -319,10 +323,12 @@ func (mv *messageValidator) validateBeaconDuty(
 	return nil
 }
 
-func (mv *messageValidator) hasFullData(signedMsg *specqbft.SignedMessage) bool {
-	return (signedMsg.Message.MsgType == specqbft.ProposalMsgType ||
-		signedMsg.Message.MsgType == specqbft.RoundChangeMsgType ||
-		mv.isDecidedMessage(signedMsg)) && len(signedMsg.FullData) != 0 // TODO: more complex check of FullData
+func (mv *messageValidator) needDifferentFullDataCheck(signedMsg *specqbft.SignedMessage) bool {
+	return signedMsg.Message.MsgType == specqbft.ProposalMsgType || mv.isDecidedMessage(signedMsg)
+}
+
+func (mv *messageValidator) needFullDataHashCheck(signedMsg *specqbft.SignedMessage) bool {
+	return signedMsg.Message.MsgType == specqbft.RoundChangeMsgType || mv.needDifferentFullDataCheck(signedMsg)
 }
 
 func (mv *messageValidator) isDecidedMessage(signedMsg *specqbft.SignedMessage) bool {

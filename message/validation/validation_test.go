@@ -1498,7 +1498,7 @@ func Test_ValidateSSVMessage(t *testing.T) {
 		receivedAt := netCfg.Beacon.GetSlotStartTime(slot).Add(validator.waitAfterSlotStart(roleAttester))
 		_, _, err = validator.validateSSVMessage(message, receivedAt, nil)
 
-		expectedErr := ErrInvalidHash
+		expectedErr := ErrInvalidFullDataHash
 		require.ErrorIs(t, err, expectedErr)
 	})
 
@@ -1507,8 +1507,13 @@ func Test_ValidateSSVMessage(t *testing.T) {
 		validator := NewMessageValidator(netCfg, WithNodeStorage(ns)).(*messageValidator)
 
 		slot := netCfg.Beacon.FirstSlotAtEpoch(1)
+		receivedAt := netCfg.Beacon.GetSlotStartTime(slot).Add(validator.waitAfterSlotStart(roleAttester))
 
-		signed1 := spectestingutils.TestingProposalMessageWithRound(ks.Shares[1], 1, 1)
+		signed1 := spectestingutils.TestingRoundChangeMessageWithRound(ks.Shares[2], 2, 2)
+		signed1.FullData = []byte{1}
+		signed1.Message.Root, err = specqbft.HashDataRoot(signed1.FullData)
+		require.NoError(t, err)
+
 		encodedSigned1, err := signed1.Encode()
 		require.NoError(t, err)
 
@@ -1518,12 +1523,16 @@ func Test_ValidateSSVMessage(t *testing.T) {
 			Data:    encodedSigned1,
 		}
 
-		receivedAt := netCfg.Beacon.GetSlotStartTime(slot).Add(validator.waitAfterSlotStart(roleAttester))
 		_, _, err = validator.validateSSVMessage(message1, receivedAt, nil)
 		require.NoError(t, err)
 
-		signed2 := spectestingutils.TestingProposalMessageWithRound(ks.Shares[1], 1, 1)
-		signed2.FullData = []byte{1}
+		signed2 := spectestingutils.TestingProposalMessageWithRoundAndRC(ks.Shares[2], 2, 2,
+			spectestingutils.MarshalJustifications([]*specqbft.SignedMessage{
+				spectestingutils.TestingRoundChangeMessageWithRound(ks.Shares[1], spectypes.OperatorID(1), 2),
+				spectestingutils.TestingRoundChangeMessageWithRound(ks.Shares[2], spectypes.OperatorID(2), 2),
+				spectestingutils.TestingRoundChangeMessageWithRound(ks.Shares[3], spectypes.OperatorID(3), 2),
+			}))
+		signed2.FullData = []byte{2}
 		signed2.Message.Root, err = specqbft.HashDataRoot(signed2.FullData)
 		require.NoError(t, err)
 
@@ -1537,6 +1546,23 @@ func Test_ValidateSSVMessage(t *testing.T) {
 		}
 
 		_, _, err = validator.validateSSVMessage(message2, receivedAt, nil)
+		require.NoError(t, err)
+
+		signed3 := spectestingutils.TestingProposalMessageWithRound(ks.Shares[2], 2, 2)
+		signed3.FullData = []byte{3}
+		signed3.Message.Root, err = specqbft.HashDataRoot(signed3.FullData)
+		require.NoError(t, err)
+
+		encodedSigned3, err := signed3.Encode()
+		require.NoError(t, err)
+
+		message3 := &spectypes.SSVMessage{
+			MsgType: spectypes.SSVConsensusMsgType,
+			MsgID:   spectypes.NewMsgID(netCfg.Domain, share.ValidatorPubKey, roleAttester),
+			Data:    encodedSigned3,
+		}
+
+		_, _, err = validator.validateSSVMessage(message3, receivedAt, nil)
 		expectedErr := ErrDuplicatedProposalWithDifferentData
 		require.ErrorIs(t, err, expectedErr)
 	})
