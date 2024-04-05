@@ -15,12 +15,6 @@ import (
 	"github.com/bloxapp/ssv/network"
 
 	spectypes "github.com/bloxapp/ssv-spec/types"
-	ethcommon "github.com/ethereum/go-ethereum/common"
-	"github.com/ilyakaznacheev/cleanenv"
-	"github.com/pkg/errors"
-	"github.com/spf13/cobra"
-	"go.uber.org/zap"
-
 	"github.com/bloxapp/ssv/api/handlers"
 	apiserver "github.com/bloxapp/ssv/api/server"
 	"github.com/bloxapp/ssv/beacon/goclient"
@@ -60,6 +54,11 @@ import (
 	"github.com/bloxapp/ssv/utils/commons"
 	"github.com/bloxapp/ssv/utils/format"
 	"github.com/bloxapp/ssv/utils/rsaencryption"
+	ethcommon "github.com/ethereum/go-ethereum/common"
+	"github.com/ilyakaznacheev/cleanenv"
+	"github.com/pkg/errors"
+	"github.com/spf13/cobra"
+	"go.uber.org/zap"
 )
 
 type KeyStore struct {
@@ -391,7 +390,9 @@ func verifyConfig(logger *zap.Logger, nodeStorage operatorstorage.Storage, netwo
 }
 
 func init() {
-	global_config.ProcessArgs(&cfg, &globalArgs, StartNodeCmd)
+	global_config.ProcessConfigArg(&cfg, &globalArgs, StartNodeCmd)
+	global_config.ProcessSharesConfigArg(&cfg, &globalArgs, StartNodeCmd)
+	global_config.ProcessHelpCmd(&cfg, &globalArgs, StartNodeCmd)
 }
 
 func setupGlobal() (*zap.Logger, error) {
