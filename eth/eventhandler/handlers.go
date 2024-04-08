@@ -206,10 +206,17 @@ func (eh *EventHandler) handleValidatorAdded(txn basedb.Txn, event *contract.Con
 		return nil, &MalformedEventError{Err: ErrShareBelongsToDifferentOwner}
 	}
 
-	if validatorShare.BelongsToOperator(eh.operatorDataStore.GetOperatorID()) {
+	isOperatorShare := validatorShare.BelongsToOperator(eh.operatorDataStore.GetOperatorID())
+
+	if isOperatorShare {
 		eh.metrics.ValidatorInactive(event.PublicKey)
-		ownShare = validatorShare
-		logger = logger.With(zap.Bool("own_validator", true))
+		logger = logger.With(zap.Bool("own_validator", isOperatorShare))
+		if validatorShare.InvalidSecret {
+			logger = logger.With(zap.Bool("invalid_secret", true))
+			logger.Debug("registered validator has an invalid share secret, it will not be started")
+		} else {
+			ownShare = validatorShare
+		}
 	}
 
 	logger.Debug("processed event")
@@ -228,11 +235,12 @@ func (eh *EventHandler) handleShareCreation(
 		sharePublicKeys,
 		encryptedKeys,
 	)
-	if err != nil {
-		return nil, fmt.Errorf("could not extract validator share from event: %w", err)
+
+	if err != nil && !share.Metadata.InvalidSecret {
+		return share, err
 	}
 
-	if share.BelongsToOperator(eh.operatorDataStore.GetOperatorID()) {
+	if !share.Metadata.InvalidSecret && share.BelongsToOperator(eh.operatorDataStore.GetOperatorID()) {
 		if shareSecret == nil {
 			return nil, errors.New("could not decode shareSecret")
 		}
@@ -248,7 +256,11 @@ func (eh *EventHandler) handleShareCreation(
 		return nil, fmt.Errorf("could not save validator share: %w", err)
 	}
 
-	return share, nil
+	if !share.Metadata.InvalidSecret {
+		return share, nil
+	}
+
+	return share, err
 }
 
 func (eh *EventHandler) validatorAddedEventToShare(
@@ -256,11 +268,11 @@ func (eh *EventHandler) validatorAddedEventToShare(
 	sharePublicKeys [][]byte,
 	encryptedKeys [][]byte,
 ) (*ssvtypes.SSVShare, *bls.SecretKey, error) {
-	validatorShare := ssvtypes.SSVShare{}
+	validatorShare := &ssvtypes.SSVShare{}
 
 	publicKey, err := ssvtypes.DeserializeBLSPublicKey(event.PublicKey)
 	if err != nil {
-		return nil, nil, &MalformedEventError{
+		return validatorShare, nil, &MalformedEventError{
 			Err: fmt.Errorf("failed to deserialize validator public key: %w", err),
 		}
 	}
@@ -287,21 +299,25 @@ func (eh *EventHandler) validatorAddedEventToShare(
 
 		shareSecret = &bls.SecretKey{}
 		decryptedSharePrivateKey, err := eh.operatorDecrypter.Decrypt(encryptedKeys[i])
+
+		validatorShare.Metadata.InvalidSecret = true
+
 		if err != nil {
-			return nil, nil, &MalformedEventError{
+			return validatorShare, nil, &MalformedEventError{
 				Err: fmt.Errorf("could not decrypt share private key: %w", err),
 			}
 		}
 		if err = shareSecret.SetHexString(string(decryptedSharePrivateKey)); err != nil {
-			return nil, nil, &MalformedEventError{
+			return validatorShare, nil, &MalformedEventError{
 				Err: fmt.Errorf("could not set decrypted share private key: %w", err),
 			}
 		}
 		if !bytes.Equal(shareSecret.GetPublicKey().Serialize(), validatorShare.SharePubKey) {
-			return nil, nil, &MalformedEventError{
+			return validatorShare, nil, &MalformedEventError{
 				Err: errors.New("share private key does not match public key"),
 			}
 		}
+		validatorShare.Metadata.InvalidSecret = false
 	}
 
 	validatorShare.Quorum, validatorShare.PartialQuorum = ssvtypes.ComputeQuorumAndPartialQuorum(len(committee))
@@ -309,7 +325,7 @@ func (eh *EventHandler) validatorAddedEventToShare(
 	validatorShare.Committee = committee
 	validatorShare.Graffiti = []byte("ssv.network")
 
-	return &validatorShare, shareSecret, nil
+	return validatorShare, shareSecret, nil
 }
 
 func (eh *EventHandler) handleValidatorRemoved(txn basedb.Txn, event *contract.ContractValidatorRemoved) (spectypes.ValidatorPK, error) {
