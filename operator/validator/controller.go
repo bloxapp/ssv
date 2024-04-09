@@ -113,11 +113,6 @@ type Controller interface {
 	ExitValidator(pubKey phase0.BLSPubKey, blockNumber uint64, validatorIndex phase0.ValidatorIndex) error
 }
 
-type nonCommitteeValidator struct {
-	*validator.NonCommitteeValidator
-	sync.Mutex
-}
-
 type Nonce uint16
 
 type Recipients interface {
@@ -170,7 +165,7 @@ type controller struct {
 	messageValidator     validation.MessageValidator
 
 	// nonCommittees is a cache of initialized nonCommitteeValidator instances
-	nonCommitteeValidators *ttlcache.Cache[spectypes.MessageID, *nonCommitteeValidator]
+	nonCommitteeValidators *ttlcache.Cache[spectypes.MessageID, *validator.NonCommitteeValidator]
 	nonCommitteeMutex      sync.Mutex
 
 	recentlyStartedValidators uint64
@@ -249,7 +244,7 @@ func NewController(logger *zap.Logger, options ControllerOptions) Controller {
 		historySyncBatchSize: options.HistorySyncBatchSize,
 
 		nonCommitteeValidators: ttlcache.New(
-			ttlcache.WithTTL[spectypes.MessageID, *nonCommitteeValidator](time.Minute * 13),
+			ttlcache.WithTTL[spectypes.MessageID, *validator.NonCommitteeValidator](time.Minute * 13),
 		),
 		metadataLastUpdated:     make(map[string]time.Time),
 		indicesChange:           make(chan struct{}),
@@ -361,47 +356,44 @@ var nonCommitteeValidatorTTLs = map[spectypes.BeaconRole]phase0.Slot{
 func (c *controller) handleWorkerMessages(msg *queue.DecodedSSVMessage) error {
 	// Get or create a nonCommitteeValidator for this MessageID, and lock it to prevent
 	// other handlers from processing
-	var ncv *nonCommitteeValidator
-	err := func() error {
-		c.nonCommitteeMutex.Lock()
-		defer c.nonCommitteeMutex.Unlock()
-
-		item := c.nonCommitteeValidators.Get(msg.GetID())
-		if item != nil {
-			ncv = item.Value()
-		} else {
-			// Create a new nonCommitteeValidator and cache it.
-			share := c.sharesStorage.Get(nil, msg.GetID().GetPubKey())
-			if share == nil {
-				return errors.Errorf("could not find validator [%s]", hex.EncodeToString(msg.GetID().GetPubKey()))
-			}
-
-			opts := c.validatorOptions
-			opts.SSVShare = share
-			ncv = &nonCommitteeValidator{
-				NonCommitteeValidator: validator.NewNonCommitteeValidator(c.logger, msg.GetID(), opts),
-			}
-
-			ttlSlots := nonCommitteeValidatorTTLs[msg.MsgID.GetRoleType()]
-			c.nonCommitteeValidators.Set(
-				msg.GetID(),
-				ncv,
-				time.Duration(ttlSlots)*c.beacon.GetBeaconNetwork().SlotDurationSec(),
-			)
-		}
-
-		ncv.Lock()
-		return nil
-	}()
+	ncv, err := c.getOrCreateNonCommitteeValidator(msg.GetID())
 	if err != nil {
 		return err
 	}
 
 	// Process the message.
-	defer ncv.Unlock()
 	ncv.ProcessMessage(c.logger, msg)
 
 	return nil
+}
+
+func (c *controller) getOrCreateNonCommitteeValidator(msgID spectypes.MessageID) (*validator.NonCommitteeValidator, error) {
+	c.nonCommitteeMutex.Lock()
+	defer c.nonCommitteeMutex.Unlock()
+
+	item := c.nonCommitteeValidators.Get(msgID)
+	if item != nil {
+		return item.Value(), nil
+	}
+
+	// Create a new nonCommitteeValidator and cache it.
+	share := c.sharesStorage.Get(nil, msgID.GetPubKey())
+	if share == nil {
+		return nil, errors.Errorf("could not find validator [%s]", hex.EncodeToString(msgID.GetPubKey()))
+	}
+
+	opts := c.validatorOptions
+	opts.SSVShare = share
+	ncv := validator.NewNonCommitteeValidator(c.logger, msgID, opts)
+
+	ttlSlots := nonCommitteeValidatorTTLs[msgID.GetRoleType()]
+	c.nonCommitteeValidators.Set(
+		msgID,
+		ncv,
+		time.Duration(ttlSlots)*c.beacon.GetBeaconNetwork().SlotDurationSec(),
+	)
+
+	return ncv, nil
 }
 
 // StartValidators loads all persisted shares and setup the corresponding validators
