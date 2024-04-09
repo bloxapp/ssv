@@ -106,12 +106,14 @@ func (w *Worker) UseErrorHandler(errHandler ErrorHandler) {
 // the operation was successful, and false if enqueuing would not have been
 // possible without blocking. Job is not enqueued in the latter case.
 func (w *Worker) TryEnqueue(msg *queue.DecodedSSVMessage) bool {
-	select {
-	case w.queue <- msg:
-		return true
-	default:
-		return false
-	}
+	//select {
+	//case w.queue <- msg:
+	//	return true
+	//default:
+	//	return false
+	//}
+	w.queue <- msg
+	return true
 }
 
 // Close queue and worker listener
