@@ -1,11 +1,11 @@
 package controller
 
 import (
-	specqbft "github.com/bloxapp/ssv-spec/qbft"
+	"github.com/bloxapp/ssv/protocol/v2/genesisqbft/instance"
+	qbftstorage "github.com/bloxapp/ssv/protocol/v2/genesisqbft/storage"
 	"github.com/pkg/errors"
 
-	"github.com/bloxapp/ssv/protocol/v2/qbft/instance"
-	qbftstorage "github.com/bloxapp/ssv/protocol/v2/qbft/storage"
+	genesisspecqbft "github.com/ssvlabs/ssv-spec-pre-cc/qbft"
 )
 
 func (c *Controller) LoadHighestInstance(identifier []byte) (*instance.Instance, error) {
@@ -45,7 +45,7 @@ func (c *Controller) getHighestInstance(identifier []byte) (*instance.Instance, 
 }
 
 // SaveInstance saves the given instance to the storage.
-func (c *Controller) SaveInstance(i *instance.Instance, msg *specqbft.SignedMessage) error {
+func (c *Controller) SaveInstance(i *instance.Instance, msg *genesisspecqbft.SignedMessage) error {
 	storedInstance := &qbftstorage.StoredInstance{
 		State:          i.State,
 		DecidedMessage: msg,
