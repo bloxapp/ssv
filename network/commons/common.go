@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"math/big"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	spectypes "github.com/ssvlabs/ssv-spec/types"
 
 	p2pprotocol "github.com/ssvlabs/ssv/protocol/v2/p2p"
+	"github.com/ssvlabs/ssv/protocol/v2/types"
 )
 
 const (
@@ -22,8 +24,8 @@ const (
 
 	peersForSync = 10
 
-	// subnetsCount returns the subnet count for genesis
-	subnetsCount uint64 = 128
+	// SubnetsCount returns the subnet count for genesis
+	SubnetsCount uint64 = 128
 
 	// UnknownSubnet is used when a validator public key is invalid
 	UnknownSubnet = "unknown"
@@ -54,6 +56,11 @@ func ValidatorTopicID(pkByts []byte) []string {
 	return []string{SubnetTopicID(subnet)}
 }
 
+// CommitteeTopicID returns the topic to use for the given committee
+func CommitteeTopicID(cid types.CommitteeID) []string {
+	return []string{strconv.Itoa(CommitteeSubnet(cid))}
+}
+
 // GetTopicFullName returns the topic full name, including prefix
 func GetTopicFullName(baseName string) string {
 	return fmt.Sprintf("%s.%s", topicPrefix, baseName)
@@ -70,7 +77,13 @@ func ValidatorSubnet(validatorPKHex string) int {
 		return -1
 	}
 	val := hexToUint64(validatorPKHex[:10])
-	return int(val % subnetsCount)
+	return int(val % SubnetsCount)
+}
+
+// CommitteeSubnet returns the subnet for the given committee
+func CommitteeSubnet(cid types.CommitteeID) int {
+	subnet := new(big.Int).Mod(new(big.Int).SetBytes(cid[:]), new(big.Int).SetUint64(SubnetsCount))
+	return int(subnet.Int64())
 }
 
 // MsgIDFunc is the function that maps a message to a msg_id
@@ -91,7 +104,7 @@ func MsgID() MsgIDFunc {
 
 // Subnets returns the subnets count for this fork
 func Subnets() int {
-	return int(subnetsCount)
+	return int(SubnetsCount)
 }
 
 // Topics returns the available topics for this fork.
