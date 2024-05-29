@@ -100,7 +100,7 @@ func TestGetMaxPeers(t *testing.T) {
 	require.Equal(t, 8, n.getMaxPeers("100"))
 }
 func TestP2pNetwork_SubscribeBroadcast(t *testing.T) {
-	n := 4
+	n := 8
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
