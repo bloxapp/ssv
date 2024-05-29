@@ -336,6 +336,12 @@ func (cr *CommitteeRunner) ProcessPostConsensus(logger *zap.Logger, signedMsg *t
 						fields.SubmissionTime(time.Since(start)),
 						fields.Height(cr.BaseRunner.QBFTController.Height),
 						fields.Round(cr.BaseRunner.State.RunningInstance.State.Round),
+						// DEBUG ->
+						fields.Slot(cr.BaseRunner.State.StartingDuty.DutySlot()),
+						zap.String("role", role.String()),
+						zap.String("root", hex.EncodeToString(root[:])),
+						zap.Any("validators", validators),
+						// <- DEBUG
 					)
 				}()
 				// TODO: like AttesterRunner
