@@ -28,6 +28,13 @@ func (v *Validator) onTimeout(logger *zap.Logger, identifier spectypes.MessageID
 		}
 
 		dr := v.DutyRunners[identifier.GetRoleType()]
+		if dr == nil {
+			logger.Error("❗❗❗❗️ validator.runner not found onTimeout",
+				fields.Role(identifier.GetRoleType()),
+				fields.MessageID(identifier),
+				fields.Height(height),
+			)
+		}
 		hasDuty := dr.HasRunningDuty()
 		if !hasDuty {
 			return
@@ -77,23 +84,31 @@ func (v *Validator) createTimerMessage(identifier spectypes.MessageID, height sp
 	}, nil
 }
 
-func (v *Committee) onTimeout(logger *zap.Logger, identifier spectypes.MessageID, height specqbft.Height) roundtimer.OnRoundTimeoutF {
+func (c *Committee) onTimeout(logger *zap.Logger, identifier spectypes.MessageID, height specqbft.Height) roundtimer.OnRoundTimeoutF {
 	return func(round specqbft.Round) {
-		v.mtx.RLock() // read-lock for v.Queues, v.state
-		defer v.mtx.RUnlock()
+		c.mtx.RLock() // read-lock for v.Queues, v.state
+		defer c.mtx.RUnlock()
 
 		// only run if the validator is started
 		//if v.state != uint32(Started) {
 		//	return
 		//}
 
-		dr := v.Runners[phase0.Slot(height)]
+		dr := c.Runners[phase0.Slot(height)]
+		if dr == nil {
+			logger.Error("❗❗❗❗️ committee.DutyRunner not found onTimeout",
+				fields.Role(identifier.GetRoleType()),
+				fields.MessageID(identifier),
+				fields.Height(height),
+			)
+		}
+
 		hasDuty := dr.HasRunningDuty()
 		if !hasDuty {
 			return
 		}
 
-		msg, err := v.createTimerMessage(identifier, height, round)
+		msg, err := c.createTimerMessage(identifier, height, round)
 		if err != nil {
 			logger.Debug("❗ failed to create timer msg", zap.Error(err))
 			return
@@ -104,7 +119,7 @@ func (v *Committee) onTimeout(logger *zap.Logger, identifier spectypes.MessageID
 			return
 		}
 
-		if pushed := v.Queues[phase0.Slot(height)].Q.TryPush(dec); !pushed {
+		if pushed := c.Queues[phase0.Slot(height)].Q.TryPush(dec); !pushed {
 			logger.Warn("❗️ dropping timeout message because the queue is full",
 				fields.Role(identifier.GetRoleType()))
 		}
@@ -112,7 +127,7 @@ func (v *Committee) onTimeout(logger *zap.Logger, identifier spectypes.MessageID
 	}
 }
 
-func (v *Committee) createTimerMessage(identifier spectypes.MessageID, height specqbft.Height, round specqbft.Round) (*spectypes.SSVMessage, error) {
+func (c *Committee) createTimerMessage(identifier spectypes.MessageID, height specqbft.Height, round specqbft.Round) (*spectypes.SSVMessage, error) {
 	td := types.TimeoutData{
 		Height: height,
 		Round:  round,
