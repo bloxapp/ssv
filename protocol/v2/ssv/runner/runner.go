@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"encoding/hex"
 	"sync"
 
 	"github.com/ssvlabs/ssv/protocol/v2/blockchain/beacon"
@@ -313,7 +314,9 @@ func (b *BaseRunner) decide(logger *zap.Logger, runner Runner, slot phase0.Slot,
 		zap.Uint64("slot", uint64(slot)),
 		zap.String("BaseRunner.RunnerRoleType", runner.GetBaseRunner().RunnerRoleType.String()),
 		zap.String("runner.RunnerRoleType", b.RunnerRoleType.String()),
-		zap.ByteString("newInstance.RunnerRoleType", newInstance.State.ID),
+		zap.String("newInstance.State.ID", hex.EncodeToString(newInstance.State.ID)),
+		zap.String("runner.GetBaseRunner().QBFTController.Identifier", hex.EncodeToString(runner.GetBaseRunner().QBFTController.Identifier)),
+		zap.String("b.QBFTController.Identifier", hex.EncodeToString(b.QBFTController.Identifier)),
 	)
 	runner.GetBaseRunner().State.RunningInstance = newInstance
 
