@@ -308,6 +308,13 @@ func (b *BaseRunner) decide(logger *zap.Logger, runner Runner, slot phase0.Slot,
 		return errors.New("could not find newly created QBFT instance")
 	}
 
+	logger.Debug(
+		"🚀🚀🚀 debug: new instance",
+		zap.Uint64("slot", uint64(slot)),
+		zap.String("BaseRunner.RunnerRoleType", runner.GetBaseRunner().RunnerRoleType.String()),
+		zap.String("runner.RunnerRoleType", b.RunnerRoleType.String()),
+		zap.ByteString("newInstance.RunnerRoleType", newInstance.State.ID),
+	)
 	runner.GetBaseRunner().State.RunningInstance = newInstance
 
 	b.registerTimeoutHandler(logger, newInstance, runner.GetBaseRunner().QBFTController.Height)
