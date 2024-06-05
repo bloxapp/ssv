@@ -139,7 +139,7 @@ func TestVoluntaryExitHandler_HandleDuties(t *testing.T) {
 func create1to1BlockSlotMapping(scheduler *Scheduler) *atomic.Uint64 {
 	var blockByNumberCalls atomic.Uint64
 
-	scheduler.executionClient.(*mocks.MockExecutionClient).EXPECT().BlockByNumber(gomock.Any(), gomock.Any()).DoAndReturn(
+	scheduler.executionClient.(*mocks.MockExecutionClient).EXPECT().HeaderByNumber(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, blockNumber *big.Int) (*ethtypes.Block, error) {
 			blockByNumberCalls.Add(1)
 			expectedBlock := ethtypes.NewBlock(&ethtypes.Header{Time: blockNumber.Uint64()}, nil, nil, nil, trie.NewStackTrie(nil))
@@ -158,11 +158,11 @@ func create1to1BlockSlotMapping(scheduler *Scheduler) *atomic.Uint64 {
 func assert1to1BlockSlotMapping(t *testing.T, scheduler *Scheduler) {
 	const blockNumber = 123
 
-	block, err := scheduler.executionClient.BlockByNumber(context.TODO(), new(big.Int).SetUint64(blockNumber))
+	block, err := scheduler.executionClient.HeaderByNumber(context.TODO(), new(big.Int).SetUint64(blockNumber))
 	require.NoError(t, err)
 	require.NotNil(t, block)
 
-	slot := scheduler.network.Beacon.EstimatedSlotAtTime(int64(block.Time()))
+	slot := scheduler.network.Beacon.EstimatedSlotAtTime(int64(block.Time))
 	require.EqualValues(t, blockNumber, slot)
 }
 

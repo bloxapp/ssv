@@ -244,8 +244,8 @@ func (ec *ExecutionClient) Healthy(ctx context.Context) error {
 	return nil
 }
 
-func (ec *ExecutionClient) BlockByNumber(ctx context.Context, blockNumber *big.Int) (*ethtypes.Block, error) {
-	return ec.client.BlockByNumber(ctx, blockNumber)
+func (ec *ExecutionClient) HeaderByNumber(ctx context.Context, blockNumber *big.Int) (*ethtypes.Header, error) {
+	return ec.client.HeaderByNumber(ctx, blockNumber)
 }
 
 func (ec *ExecutionClient) isClosed() bool {
