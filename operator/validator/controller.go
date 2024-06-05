@@ -855,9 +855,35 @@ func (c *controller) onShareStop(pubKey spectypes.ValidatorPK) {
 		c.logger.Debug("validator was stopped", fields.PubKey(pubKey[:]))
 	}
 
+	if v.Share == nil {
+		c.logger.Warn("DEBUG::controller.onShareStop::share is nil!",
+			fields.PubKey(pubKey[:]),
+		)
+	}
+
+	var committeeIdStr string
+	for _, cm := range v.Share.Committee {
+		if cm == nil {
+			c.logger.Warn("DEBUG::controller.onShareStop::committeeMember is nil")
+			committeeIdStr += "NIL "
+			continue
+		}
+
+		committeeIdStr += fmt.Sprintf("%d ", cm.Signer)
+	}
+
+	c.logger.Warn("DEBUG::controller.onShareStop::committeeIdStr",
+		fields.PubKey(pubKey[:]),
+		zap.String("COMMITTEE_ID_DEBUG:", committeeIdStr),
+	)
+
 	vc, ok := c.validatorsMap.GetCommittee(v.Share.CommitteeID())
 	if ok {
 		vc.RemoveShare(v.Share.Share.ValidatorIndex)
+		c.logger.Warn("DEBUG::controller.onShareStop::foundCommittee and RemoveShare worked",
+			fields.PubKey(pubKey[:]),
+			zap.String("COMMITTEE_ID_DEBUG:", committeeIdStr),
+		)
 		// TODO: (Alan) remove committee if last share and stop
 	}
 }
