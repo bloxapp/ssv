@@ -154,6 +154,12 @@ func (cr *CommitteeRunner) ProcessConsensus(logger *zap.Logger, msg *types.Signe
 
 	beaconVote := decidedValue.(*types.BeaconVote)
 	for _, duty := range duty.(*types.CommitteeDuty).BeaconDuties {
+
+		if duty.IsStopped {
+			logger.Debug("skipping stopped duty", zap.Int("validator_index", int(duty.ValidatorIndex)), zap.String("pub_key", hex.EncodeToString(duty.PubKey[:])))
+			continue
+		}
+
 		switch duty.Type {
 		case types.BNRoleAttester:
 			attestationData := constructAttestationData(beaconVote, duty)
