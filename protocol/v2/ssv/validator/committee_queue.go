@@ -10,7 +10,9 @@ import (
 	spectypes "github.com/ssvlabs/ssv-spec/types"
 	"github.com/ssvlabs/ssv/logging/fields"
 	"github.com/ssvlabs/ssv/protocol/v2/message"
+	"github.com/ssvlabs/ssv/protocol/v2/qbft/instance"
 	"github.com/ssvlabs/ssv/protocol/v2/ssv/queue"
+	"github.com/ssvlabs/ssv/protocol/v2/types"
 	"go.uber.org/zap"
 )
 
@@ -99,50 +101,53 @@ func (v *Committee) ConsumeQueue(logger *zap.Logger, slot phase0.Slot, handler M
 		// Construct a representation of the current state.
 		state := *q.queueState
 
-		//runner := v.Runners.DutyRunnerForMsgID(msgID)
-		//if runner == nil {
-		//	return fmt.Errorf("could not get duty runner for msg ID %v", msgID)
-		//}
-		//var runningInstance *instance.Instance
-		//if runner.HasRunningDuty() {
-		//	runningInstance = runner.GetBaseRunner().State.RunningInstance
-		//	if runningInstance != nil {
-		//		decided, _ := runningInstance.IsDecided()
-		//		state.HasRunningInstance = !decided
-		//	}
-		//}
-		//state.Height = v.GetLastHeight(msgID)
-		//state.Round = v.GetLastRound(msgID)
-		//state.Quorum = v.Share.Quorum
-		//
-		//filter := queue.FilterAny
-		//if !runner.HasRunningDuty() {
-		//	// If no duty is running, pop only ExecuteDuty messages.
-		//	filter = func(m *queue.DecodedSSVMessage) bool {
-		//		e, ok := m.Body.(*types.EventMsg)
-		//		if !ok {
-		//			return false
-		//		}
-		//		return e.Type == types.ExecuteDuty
-		//	}
-		//} else if runningInstance != nil && runningInstance.State.ProposalAcceptedForCurrentRound == nil {
-		//	// If no proposal was accepted for the current round, skip prepare & commit messages
-		//	// for the current height and round.
-		// filter := func(m *queue.DecodedSSVMessage) bool {
-		// 	sm, ok := m.Body.(*specqbft.Message)
-		// 	if !ok {
-		// 		return true
-		// 	}
+		v.mtx.Lock()
+		runner := v.Runners[slot]
+		v.mtx.Unlock()
 
-		// 	if sm.Height != state.Height || sm.Round != state.Round {
-		// 		return true
-		// 	}
-		// 	return sm.MsgType != specqbft.PrepareMsgType && sm.MsgType != specqbft.CommitMsgType
-		// }
+		if runner == nil {
+			return fmt.Errorf("could not get duty runner for slot %d", slot)
+		}
+		var runningInstance *instance.Instance
+		if runner.HasRunningDuty() {
+			runningInstance = runner.GetBaseRunner().State.RunningInstance
+			if runningInstance != nil {
+				decided, _ := runningInstance.IsDecided()
+				state.HasRunningInstance = !decided
+			}
+		}
+
+		state.Slot = slot
+
+		filter := queue.FilterAny
+		if !runner.HasRunningDuty() {
+			// If no duty is running, pop only ExecuteDuty messages.
+			filter = func(m *queue.DecodedSSVMessage) bool {
+				e, ok := m.Body.(*types.EventMsg)
+				if !ok {
+					return false
+				}
+				return e.Type == types.ExecuteDuty
+			}
+		} else if runningInstance != nil && runningInstance.State.ProposalAcceptedForCurrentRound == nil {
+			// If no proposal was accepted for the current round, skip prepare & commit messages
+			// for the current height and round.
+			filter = func(m *queue.DecodedSSVMessage) bool {
+				sm, ok := m.Body.(*specqbft.Message)
+				if !ok {
+					return true
+				}
+
+				if sm.Height != state.Height || sm.Round != state.Round {
+					return true
+				}
+				return sm.MsgType != specqbft.PrepareMsgType && sm.MsgType != specqbft.CommitMsgType
+			}
+		}
 
 		// Pop the highest priority message for the current state.
 		// TODO: (Alan) bring back filter
-		msg := q.Q.Pop(ctx, queue.NewMessagePrioritizer(&state), queue.FilterAny)
+		msg := q.Q.Pop(ctx, queue.NewCommitteeQueuePrioritizer(&state), filter)
 		if ctx.Err() != nil {
 			break
 		}
