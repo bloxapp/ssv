@@ -85,7 +85,6 @@ func (v *Committee) ConsumeQueue(logger *zap.Logger, slot phase0.Slot, handler M
 
 	var q queueContainer
 	state := *q.queueState
-	state.Slot = slot
 
 	err := func() error {
 		v.mtx.RLock() // read v.Queues
@@ -105,6 +104,9 @@ func (v *Committee) ConsumeQueue(logger *zap.Logger, slot phase0.Slot, handler M
 	lens := make([]int, 0, 10)
 
 	for ctx.Err() == nil {
+		v.mtx.Lock()
+		state.Slot = slot
+		v.mtx.Unlock()
 		// Construct a representation of the current state.
 		var runningInstance *instance.Instance
 		if runner.HasRunningDuty() {
