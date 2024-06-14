@@ -95,10 +95,11 @@ func (v *Committee) ConsumeQueue(logger *zap.Logger, slot phase0.Slot, handler M
 		}
 		return nil
 	}()
-	state := *q.queueState
 	if err != nil {
 		return err
 	}
+
+	state := *q.queueState
 
 	logger.Debug("📬 queue consumer is running")
 	lens := make([]int, 0, 10)
