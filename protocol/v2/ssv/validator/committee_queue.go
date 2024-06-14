@@ -84,7 +84,6 @@ func (v *Committee) ConsumeQueue(logger *zap.Logger, slot phase0.Slot, handler M
 	defer cancel()
 
 	var q queueContainer
-	state := *q.queueState
 
 	err := func() error {
 		v.mtx.RLock() // read v.Queues
@@ -96,6 +95,7 @@ func (v *Committee) ConsumeQueue(logger *zap.Logger, slot phase0.Slot, handler M
 		}
 		return nil
 	}()
+	state := *q.queueState
 	if err != nil {
 		return err
 	}
