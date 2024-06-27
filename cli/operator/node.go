@@ -29,6 +29,7 @@ import (
 	"github.com/ssvlabs/ssv/eth/localevents"
 	exporterapi "github.com/ssvlabs/ssv/exporter/api"
 	"github.com/ssvlabs/ssv/exporter/api/decided"
+	"github.com/ssvlabs/ssv/forks"
 	ibftstorage "github.com/ssvlabs/ssv/ibft/storage"
 	ssv_identity "github.com/ssvlabs/ssv/identity"
 	"github.com/ssvlabs/ssv/logging"
@@ -53,7 +54,7 @@ import (
 	"github.com/ssvlabs/ssv/operator/validator"
 	"github.com/ssvlabs/ssv/operator/validators"
 	beaconprotocol "github.com/ssvlabs/ssv/protocol/v2/blockchain/beacon"
-	"github.com/ssvlabs/ssv/protocol/v2/types"
+	ssvtypes "github.com/ssvlabs/ssv/protocol/v2/types"
 	registrystorage "github.com/ssvlabs/ssv/registry/storage"
 	"github.com/ssvlabs/ssv/storage/basedb"
 	"github.com/ssvlabs/ssv/storage/kv"
@@ -83,6 +84,7 @@ type config struct {
 	WithPing                   bool                             `yaml:"WithPing" env:"WITH_PING" env-description:"Whether to send websocket ping messages'"`
 	SSVAPIPort                 int                              `yaml:"SSVAPIPort" env:"SSV_API_PORT" env-description:"Port to listen on for the SSV API."`
 	LocalEventsPath            string                           `yaml:"LocalEventsPath" env:"EVENTS_PATH" env-description:"path to local events"`
+	ForkEpochs                 forks.Epochs                     `yaml:"ForkEpochs"`
 }
 
 var cfg config
@@ -91,7 +93,6 @@ var globalArgs global_config.Args
 
 var operatorNode operator.Node
 
-// StartNodeCmd is the command to start SSV node
 var StartNodeCmd = &cobra.Command{
 	Use:   "start-node",
 	Short: "Starts an instance of SSV node",
@@ -174,10 +175,14 @@ var StartNodeCmd = &cobra.Command{
 
 		cfg.P2pNetworkConfig.Ctx = cmd.Context()
 
+		forks := forks.New(cfg.ForkEpochs, networkConfig.Beacon.GetNetwork().EstimatedCurrentEpoch())
+
 		slotTickerProvider := func() slotticker.SlotTicker {
 			return slotticker.New(logger, slotticker.Config{
-				SlotDuration: networkConfig.SlotDurationSec(),
-				GenesisTime:  networkConfig.GetGenesisTime(),
+				SlotDuration:  networkConfig.SlotDurationSec(),
+				GenesisTime:   networkConfig.GetGenesisTime(),
+				SlotsPerEpoch: networkConfig.SlotsPerEpoch(),
+				Forks:         forks,
 			})
 		}
 
@@ -219,28 +224,23 @@ var StartNodeCmd = &cobra.Command{
 		validatorStore := nodeStorage.ValidatorStore()
 		// validatorStore = newValidatorStore(...) // TODO
 
-		var messageValidator validation.MessageValidator
+		genesisMessageValidator := genesisvalidation.New(
+			networkConfig,
+			genesisvalidation.WithNodeStorage(nodeStorage),
+			genesisvalidation.WithLogger(logger),
+			genesisvalidation.WithMetrics(metricsReporter),
+			genesisvalidation.WithDutyStore(dutyStore),
+		)
 
-		alanFork := true
-
-		if alanFork {
-			messageValidator = validation.New(
-				networkConfig,
-				validatorStore,
-				dutyStore,
-				signatureVerifier,
-				validation.WithLogger(logger),
-				validation.WithMetrics(metricsReporter),
-			)
-		} else {
-			messageValidator = genesisvalidation.New(
-				networkConfig,
-				genesisvalidation.WithNodeStorage(nodeStorage),
-				genesisvalidation.WithLogger(logger),
-				genesisvalidation.WithMetrics(metricsReporter),
-				genesisvalidation.WithDutyStore(dutyStore),
-			)
-		}
+		messageValidator := validation.New(
+			networkConfig,
+			validatorStore,
+			dutyStore,
+			signatureVerifier,
+			validation.WithLogger(logger),
+			validation.WithMetrics(metricsReporter),
+			validation.WithGenesisValidator(genesisMessageValidator, forks),
+		)
 
 		cfg.P2pNetworkConfig.Metrics = metricsReporter
 		cfg.P2pNetworkConfig.MessageValidator = messageValidator
@@ -274,8 +274,6 @@ var StartNodeCmd = &cobra.Command{
 			cfg.SSVOptions.ValidatorOptions.NewDecidedHandler = decided.NewStreamPublisher(logger, ws)
 		}
 
-		cfg.SSVOptions.ValidatorOptions.DutyRoles = []spectypes.BeaconRole{spectypes.BNRoleAttester} // TODO could be better to set in other place
-
 		storageRoles := []spectypes.RunnerRole{
 			spectypes.RoleCommittee,
 			spectypes.RoleProposer,
@@ -283,6 +281,8 @@ var StartNodeCmd = &cobra.Command{
 			spectypes.RoleSyncCommitteeContribution,
 			spectypes.RoleValidatorRegistration,
 			spectypes.RoleVoluntaryExit,
+			ssvtypes.RoleAttester,
+			ssvtypes.RoleSyncCommittee,
 		}
 
 		storageMap := ibftstorage.NewStores()
@@ -293,8 +293,9 @@ var StartNodeCmd = &cobra.Command{
 
 		cfg.SSVOptions.ValidatorOptions.StorageMap = storageMap
 		cfg.SSVOptions.ValidatorOptions.Metrics = metricsReporter
-		cfg.SSVOptions.ValidatorOptions.OperatorSigner = types.NewSsvOperatorSigner(operatorPrivKey, operatorDataStore.GetOperatorID)
+		cfg.SSVOptions.ValidatorOptions.OperatorSigner = ssvtypes.NewSsvOperatorSigner(operatorPrivKey, operatorDataStore.GetOperatorID)
 		cfg.SSVOptions.Metrics = metricsReporter
+		cfg.SSVOptions.ForkProvider = forks
 
 		validatorCtrl := validator.NewController(logger, cfg.SSVOptions.ValidatorOptions)
 		cfg.SSVOptions.ValidatorController = validatorCtrl
@@ -556,7 +557,7 @@ func setupSSVNetwork(logger *zap.Logger) (networkconfig.NetworkConfig, error) {
 		return networkconfig.NetworkConfig{}, err
 	}
 
-	types.SetDefaultDomain(networkConfig.Domain)
+	ssvtypes.SetDefaultDomain(networkConfig.Domain)
 
 	nodeType := "light"
 	if cfg.SSVOptions.ValidatorOptions.FullNode {

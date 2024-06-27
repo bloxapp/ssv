@@ -6,6 +6,7 @@ import (
 	spectypes "github.com/ssvlabs/ssv-spec/types"
 	"go.uber.org/zap"
 
+	"github.com/ssvlabs/ssv/forks"
 	"github.com/ssvlabs/ssv/networkconfig"
 	"github.com/ssvlabs/ssv/operator/slotticker"
 )
@@ -19,7 +20,7 @@ type ExecuteDutiesFunc func(logger *zap.Logger, duties []*spectypes.BeaconDuty)
 type ExecuteCommitteeDutiesFunc func(logger *zap.Logger, duties committeeDutiesMap)
 
 type dutyHandler interface {
-	Setup(string, *zap.Logger, BeaconNode, ExecutionClient, networkconfig.NetworkConfig, ValidatorProvider, ValidatorController, ExecuteDutiesFunc, ExecuteCommitteeDutiesFunc, slotticker.Provider, chan ReorgEvent, chan struct{})
+	Setup(string, *zap.Logger, BeaconNode, ExecutionClient, networkconfig.NetworkConfig, ValidatorProvider, ValidatorController, ExecuteDutiesFunc, ExecuteCommitteeDutiesFunc, slotticker.Provider, chan ReorgEvent, chan struct{}, forks.Provider)
 	HandleDuties(context.Context)
 	HandleInitialDuties(context.Context)
 	Name() string
@@ -35,11 +36,10 @@ type baseHandler struct {
 	executeDuties          ExecuteDutiesFunc
 	executeCommitteeDuties ExecuteCommitteeDutiesFunc
 	ticker                 slotticker.SlotTicker
-
-	reorg         chan ReorgEvent
-	indicesChange chan struct{}
-
-	indicesChanged bool
+	reorg                  chan ReorgEvent
+	indicesChange          chan struct{}
+	indicesChanged         bool
+	forkProvider           forks.Provider
 }
 
 func (h *baseHandler) Setup(
@@ -55,6 +55,7 @@ func (h *baseHandler) Setup(
 	slotTickerProvider slotticker.Provider,
 	reorgEvents chan ReorgEvent,
 	indicesChange chan struct{},
+	forkProvider forks.Provider,
 ) {
 	h.logger = logger.With(zap.String("handler", name))
 	h.beaconNode = beaconNode
@@ -67,6 +68,7 @@ func (h *baseHandler) Setup(
 	h.ticker = slotTickerProvider()
 	h.reorg = reorgEvents
 	h.indicesChange = indicesChange
+	h.forkProvider = forkProvider
 }
 
 func (h *baseHandler) warnMisalignedSlotAndDuty(dutyType string) {
