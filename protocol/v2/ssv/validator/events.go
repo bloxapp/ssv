@@ -58,6 +58,11 @@ func (c *Committee) handleEventMessage(logger *zap.Logger, msg *queue.DecodedSSV
 			return fmt.Errorf("timeout event: %w", err)
 		}
 
+		if q.StopQueueF == nil {
+			logger.Error("no stop queue function found", fields.Slot(slot), fields.MessageID(msg.MsgID))
+			return nil
+		}
+
 		q.StopQueueF()
 
 		return nil
