@@ -59,7 +59,7 @@ func (c *Committee) handleEventMessage(logger *zap.Logger, msg *queue.DecodedSSV
 		}
 
 		if q.StopQueueF == nil {
-			logger.Error("no stop queue function found", fields.Slot(slot), fields.MessageID(msg.MsgID))
+			logger.Error("no stop queue function found", fields.MessageID(msg.MsgID))
 			return nil
 		}
 

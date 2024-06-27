@@ -138,6 +138,7 @@ func (c *Committee) StartDuty(logger *zap.Logger, duty *spectypes.CommitteeDuty)
 	// Setting the cancel function separately due the queue could be created in HandleMessage
 	q, _ := c.Queues[duty.Slot]
 	q.StopQueueF = cancelF
+	c.Queues[duty.Slot] = q
 
 	logger = c.logger.With(fields.DutyID(fields.FormatCommitteeDutyID(c.Operator.Committee, c.BeaconNetwork.EstimatedEpochAtSlot(duty.Slot), duty.Slot)), fields.Slot(duty.Slot))
 	go func() {
